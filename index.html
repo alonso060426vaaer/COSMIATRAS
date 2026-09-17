@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#b8577f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Productividad">
+<title>Control de Productividad</title>
+<link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <button class="volver oculto" id="btnVolver">&larr; Volver</button>
+    <h1 id="titulo">Cosmiatras</h1>
+    <div class="spacer"></div>
+    <button class="btn btn-linea btn-sm" id="btnReporte">Reporte</button>
+  </header>
+
+  <div id="aviso" class="aviso oculto"></div>
+
+  <!-- PANTALLA 1 : lista de cosmiatras -->
+  <section id="p1">
+    <div id="listaCosm" class="grid-cosm">
+      <!-- las tarjetas se insertan antes de este boton -->
+      <button class="tile tile-agregar" id="btnAgregar">
+        <span class="tile-mas">+</span>
+        <span>Agregar cosmiatra</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- PANTALLA 2 : hoja del dia -->
+  <section id="p2" class="oculto">
+    <div class="card">
+      <div class="fila-paciente">
+        <div>
+          <label>Paciente</label>
+          <input id="inPaciente" placeholder="Nombre" autocomplete="off">
+        </div>
+        <button class="btn btn-linea btn-sm oculto" id="btnNueva">Nueva paciente</button>
+      </div>
+
+      <div id="listaProcs"></div>
+
+      <button class="btn btn-linea btn-sm" id="btnMasProc">+ Agregar procedimiento</button>
+    </div>
+
+    <!-- atenciones que quedaron abiertas en dias anteriores -->
+    <div class="card card-pendientes oculto" id="cardPend">
+      <div class="card-titulo">
+        <b>Quedaron sin cerrar</b>
+        <span class="fecha">De d&iacute;as anteriores</span>
+      </div>
+      <table>
+        <thead><tr><th>Fecha</th><th>Paciente</th><th>Procedimiento</th><th>Inicio</th><th></th></tr></thead>
+        <tbody id="tbPend"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="card-titulo">
+        <b>Hoy</b><span class="fecha" id="fechaHoy"></span><span class="fecha" id="estadoEnvio"></span>
+      </div>
+      <table>
+        <thead><tr><th>Paciente</th><th>Procedimiento</th><th>Inicio</th><th>T&eacute;rmino</th><th></th></tr></thead>
+        <tbody id="tbHoy"></tbody>
+      </table>
+      <div class="vacio oculto" id="vacioHoy">Sin atenciones todav&iacute;a</div>
+    </div>
+  </section>
+
+  <!-- PANTALLA 3 : reporte -->
+  <section id="p3" class="oculto">
+    <div class="card">
+      <div class="fila-form">
+        <div>
+          <label>Fecha</label>
+          <input type="date" id="fFecha">
+        </div>
+        <div>
+          <label>Cosmiatra</label>
+          <select id="fCosm"></select>
+        </div>
+        <button class="btn btn-linea" id="btnExcel">Enviar a la hoja</button>
+        <button class="btn btn-linea btn-sm" id="btnCSV">Descargar CSV</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="totales">
+        <div><b id="tPac">0</b><span>Pacientes</span></div>
+        <div><b id="tAt">0</b><span>Procedimientos</span></div>
+        <div><b id="tMin">0</b><span>Minutos</span></div>
+      </div>
+      <div class="vacio oculto" id="vacioRep">Sin registros</div>
+    </div>
+
+    <!-- una tarjeta por persona, para no mezclar sus procedimientos -->
+    <div id="repPorPersona"></div>
+  </section>
+
+</div>
+
+<script src="procedimientos.js"></script>
+<script>
+/* ============================================================
+   Cada registro = UN procedimiento con su propio cronometro.
+   Una paciente puede tener varios registros el mismo dia.
+   ============================================================ */
+
+/* ---------- datos ---------- */
+var DB = {
+  cosmiatras: JSON.parse(localStorage.getItem('cosmiatras') || '["Denisse","Pamela","Karen"]'),
+  registros:  JSON.parse(localStorage.getItem('registros')  || '[]')
+};
+
+function guardar(){
+  localStorage.setItem('cosmiatras', JSON.stringify(DB.cosmiatras));
+  localStorage.setItem('registros',  JSON.stringify(DB.registros));
+}
+
+/* Identificador propio de cada registro. Se usa en vez de la posicion
+   dentro del arreglo, que cambia al borrar. */
+var contadorId = 0;
+function nuevoId(){
+  return Date.now().toString(36) + '-' + (contadorId++);
+}
+function porId(id){
+  for(var i = 0; i < DB.registros.length; i++){
+    if(DB.registros[i].id === id) return DB.registros[i];
+  }
+  return null;
+}
+
+/* Version anterior: un registro traia proc1/proc2/proc3 juntos.
+   Ahora cada procedimiento vive en su propio registro. */
+function migrar(){
+  var salida = [], cambio = false;
+  DB.registros.forEach(function(r){
+    if(r.proc1 === undefined && r.proc2 === undefined && r.proc3 === undefined){
+      salida.push(r);
+      return;
+    }
+    cambio = true;
+    [r.proc1, r.proc2, r.proc3].forEach(function(p, k){
+      if(!p && k > 0) return;
+      salida.push({
+        cosmiatra: r.cosmiatra, fecha: r.fecha, paciente: r.paciente,
+        procedimiento: p || '', inicio: r.inicio, fin: r.fin
+      });
+    });
+  });
+  salida.forEach(function(r){
+    if(!r.id){ r.id = nuevoId(); cambio = true; }
+  });
+  if(cambio){ DB.registros = salida; guardar(); }
+}
+migrar();
+
+/* Los dos doctores tienen su propia pestana en la hoja de calculo.
+   Se agregan una sola vez: si luego los borras de la lista, no vuelven. */
+if(!localStorage.getItem('doctoresAgregados')){
+  ['Dra. Estefany', 'Dr. Gustavo'].forEach(function(n){
+    var existe = DB.cosmiatras.some(function(c){ return c.toLowerCase() === n.toLowerCase(); });
+    if(!existe) DB.cosmiatras.push(n);
+  });
+  localStorage.setItem('doctoresAgregados', '1');
+  guardar();
+}
+
+/* ---------- utilidades ---------- */
+function $(id){ return document.getElementById(id); }
+
+function hoy(){
+  var d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function ahora(){
+  var d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function minutos(a,b){
+  if(!a || !b) return '';
+  var x = a.split(':'), y = b.split(':');
+  return (y[0]*60 + +y[1]) - (x[0]*60 + +x[1]);
+}
+function fechaLarga(f){
+  var p = f.split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+function limpio(t){
+  return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+var cosmActual = null;
+
+/* Si se entra al reporte desde la hoja de una persona, se ve solo lo
+   suyo. Desde la lista general se ve todo. */
+var reporteDe = null;
+
+function aviso(txt){
+  var a = $('aviso');
+  a.textContent = txt;
+  a.classList.remove('oculto');
+  clearTimeout(aviso.t);
+  aviso.t = setTimeout(function(){ a.classList.add('oculto'); }, 3000);
+}
+
+function pantalla(n){
+  $('aviso').classList.add('oculto');
+  ['p1','p2','p3'].forEach(function(p,i){ $(p).classList.toggle('oculto', i !== n-1); });
+  $('btnVolver').classList.toggle('oculto', n === 1);
+  $('btnReporte').classList.toggle('oculto', n === 3);
+  $('titulo').textContent = n === 1 ? 'Cosmiatras'
+                          : (n === 2 ? cosmActual
+                          : (reporteDe ? 'Reporte de ' + reporteDe : 'Reporte'));
+}
+
+/* ---------- pantalla 1 : lista de cosmiatras ---------- */
+
+/* Iniciales para el circulo de la tarjeta */
+function iniciales(nombre){
+  var p = nombre.trim().split(/\s+/);
+  return (p[0].charAt(0) + (p[1] ? p[1].charAt(0) : '')).toUpperCase();
+}
+
+/* Color estable por nombre, para reconocerlas de un vistazo */
+var TONOS = ['#b8577f','#8d6ea8','#c07a52','#4f9d8b','#a8556b','#6f83b5','#b0824a','#5f9ab8'];
+function tono(nombre){
+  var s = 0;
+  for(var i = 0; i < nombre.length; i++) s += nombre.charCodeAt(i);
+  return TONOS[s % TONOS.length];
+}
+
+function pintarCosmiatras(){
+  var cont = $('listaCosm'), mas = $('btnAgregar');
+
+  /* se borran solo las tarjetas: el boton de agregar es fijo */
+  Array.prototype.slice.call(cont.querySelectorAll('.cosm')).forEach(function(n){
+    cont.removeChild(n);
+  });
+
+  DB.cosmiatras.forEach(function(nombre){
+    var enCurso = DB.registros.filter(function(r){ return r.cosmiatra === nombre && !r.fin; }).length;
+
+    var div = document.createElement('div');
+    div.className = 'tile cosm';
+    div.innerHTML =
+      '<span class="x" title="Eliminar">&times;</span>' +
+      '<span class="avatar" style="background:' + tono(nombre) + '">' + limpio(iniciales(nombre)) + '</span>' +
+      '<span class="nombre">' + limpio(nombre) + '</span>' +
+      (enCurso
+        ? '<span class="pill pill-curso">' + (enCurso > 1 ? enCurso + ' en curso' : 'En curso') + '</span>'
+        : '<span class="pill pill-libre">Disponible</span>');
+
+    div.onclick = function(){ abrirHoja(nombre); };
+    div.querySelector('.x').onclick = function(e){
+      e.stopPropagation();
+      if(confirm('Eliminar a ' + nombre + ' de la lista?')){
+        DB.cosmiatras = DB.cosmiatras.filter(function(c){ return c !== nombre; });
+        guardar();
+        pintarCosmiatras();
+      }
+    };
+    cont.insertBefore(div, mas);
+  });
+}
+
+$('btnAgregar').onclick = function(){
+  var n = (prompt('Nombre de la cosmiatra') || '').trim();
+  if(!n) return;
+  if(DB.cosmiatras.some(function(c){ return c.toLowerCase() === n.toLowerCase(); })){
+    return aviso('Ese nombre ya existe');
+  }
+  DB.cosmiatras.push(n);
+  guardar();
+  pintarCosmiatras();
+};
+
+/* ============================================================
+   PANTALLA 2 : hoja del dia
+   ------------------------------------------------------------
+   "filas" son los renglones del formulario de la paciente actual.
+     id === null  -> el procedimiento todavia no arranca
+     id           -> identificador de su registro en DB.registros
+   ============================================================ */
+var filas = [];
+
+function filaVacia(){ return { texto:'', id:null }; }
+
+function abrirHoja(nombre){
+  cosmActual = nombre;
+  $('fechaHoy').textContent = fechaLarga(hoy());
+  nuevaPaciente();
+  pantalla(2);
+  pintarHoja();
+  pintarPendientes();
+  $('inPaciente').focus();
+}
+
+function nuevaPaciente(){
+  filas = [filaVacia(), filaVacia()];
+  $('inPaciente').value = '';
+  pintarProcs();
+}
+
+function hayIniciados(){
+  return filas.some(function(f){ return f.id !== null; });
+}
+
+function refrescar(){
+  guardar();
+  pintarProcs();
+  pintarHoja();
+  pintarPendientes();
+  enviarPendientes();
+}
+
+/* ---------- renglones de procedimiento ---------- */
+function pintarProcs(){
+  var cont = $('listaProcs');
+  cont.innerHTML = '';
+  filas.forEach(function(f, i){ cont.appendChild(filaProcDOM(f, i)); });
+
+  /* mientras haya algo iniciado, el nombre de la paciente queda fijo */
+  var bloquear = hayIniciados();
+  $('inPaciente').disabled = bloquear;
+  $('btnNueva').classList.toggle('oculto', !bloquear);
+}
+
+/* ============================================================
+   AUTOCOMPLETADO DE PROCEDIMIENTOS
+   ------------------------------------------------------------
+   Se escriben las primeras letras y aparecen los que coinciden.
+   Se toca uno y queda puesto. Igual se puede escribir algo que
+   no este en la lista: la lista sugiere, no obliga.
+   La lista vive en procedimientos.js.
+   ============================================================ */
+
+var MAX_SUGERENCIAS = 8;
+
+/* compara sin tildes ni mayusculas: "lampara" encuentra "Lampara LED" */
+function sinTildes(t){
+  return String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/* Los tratamientos corporales se hacen por zona. Si ya escribio uno
+   de ellos y un espacio, se le ofrecen las zonas ya pegadas:
+   "Emsculpt " -> "Emsculpt abdomen", "Emsculpt cintura"...
+   Asi no hace falta tener las 264 combinaciones en la lista. */
+function sugerirZonas(texto){
+  if(typeof POR_ZONA === 'undefined' || typeof ZONAS === 'undefined') return [];
+
+  var t = String(texto).replace(/\s+/g, ' ');
+  var corte = t.lastIndexOf(' ');
+  if(corte < 1) return [];
+
+  var base  = sinTildes(t.slice(0, corte).trim());
+  var resto = sinTildes(t.slice(corte + 1));
+
+  var servicio = null;
+  for(var k = 0; k < POR_ZONA.length; k++){
+    if(sinTildes(POR_ZONA[k]) === base){ servicio = POR_ZONA[k]; break; }
+  }
+  if(!servicio) return [];
+
+  var salida = [];
+  for(var z = 0; z < ZONAS.length; z++){
+    if(resto && sinTildes(ZONAS[z]).indexOf(resto) !== 0) continue;
+    salida.push(servicio + ' ' + ZONAS[z]);
+  }
+  return salida;
+}
+
+function buscarProcs(texto){
+  if(typeof PROCEDIMIENTOS === 'undefined') return [];
+
+  var q        = sinTildes(texto).trim();
+  var tal_cual = String(texto).trim();
+
+  /* las zonas van primero: si escribio "Emsculpt " es lo que busca */
+  var zonas = sugerirZonas(texto).filter(function(p){ return p !== tal_cual; });
+  if(q.length < 2) return zonas.slice(0, MAX_SUGERENCIAS);
+
+  /* despues los que empiezan igual, y al final los que lo llevan dentro */
+  var empiezan = [], dentro = [];
+  for(var k = 0; k < PROCEDIMIENTOS.length; k++){
+    var p = PROCEDIMIENTOS[k], sp = sinTildes(p);
+    /* solo se salta si ya lo escribio identico. Si coincide pero con
+       otras mayusculas o sin tildes, se ofrece igual: asi "4rf" propone
+       "4RF" y todas terminan escribiendolo de la misma forma. */
+    if(p === tal_cual) continue;
+    var pos = sp.indexOf(q);
+    if(pos === 0) empiezan.push(p);
+    else if(pos > 0) dentro.push(p);
+  }
+  return zonas.concat(empiezan, dentro).slice(0, MAX_SUGERENCIAS);
+}
+
+function cajaSugerencias(inp, i){
+  var caja = document.createElement('div');
+  caja.className = 'sugerencias oculto';
+  var opciones = [], activa = -1;
+
+  function cerrar(){
+    caja.classList.add('oculto');
+    caja.innerHTML = '';
+    opciones = [];
+    activa = -1;
+  }
+
+  function marcar(n){
+    if(!opciones.length) return;
+    if(activa >= 0) opciones[activa].classList.remove('sel');
+    activa = (n + opciones.length) % opciones.length;
+    opciones[activa].classList.add('sel');
+    opciones[activa].scrollIntoView({ block: 'nearest' });
+  }
+
+  function elegir(texto){
+    inp.value = texto;
+    inp.oninput();          /* para que se guarde en la fila */
+    cerrar();
+    inp.focus();
+  }
+
+  function pintar(){
+    var lista = buscarProcs(inp.value);
+    caja.innerHTML = '';
+    opciones = [];
+    activa = -1;
+    if(!lista.length){ cerrar(); return; }
+    lista.forEach(function(p){
+      var op = document.createElement('div');
+      op.textContent = p;
+      /* pointerdown y no click: el click llega despues de que el
+         campo pierde el foco, y para entonces ya se cerro */
+      op.addEventListener('pointerdown', function(ev){
+        ev.preventDefault();
+        elegir(p);
+      });
+      caja.appendChild(op);
+      opciones.push(op);
+    });
+    caja.classList.remove('oculto');
+  }
+
+  inp.addEventListener('input', pintar);
+  inp.addEventListener('focus', pintar);
+  inp.addEventListener('blur', function(){ setTimeout(cerrar, 150); });
+
+  inp.onkeydown = function(e){
+    var abierta = !caja.classList.contains('oculto') && opciones.length > 0;
+    if(abierta && e.key === 'ArrowDown'){ e.preventDefault(); marcar(activa + 1); return; }
+    if(abierta && e.key === 'ArrowUp'){   e.preventDefault(); marcar(activa - 1); return; }
+    if(abierta && e.key === 'Escape'){    cerrar(); return; }
+    if(e.key === 'Enter'){
+      if(abierta && activa >= 0){ e.preventDefault(); elegir(opciones[activa].textContent); return; }
+      cerrar();
+      iniciarFila(i);
+    }
+  };
+
+  return caja;
+}
+
+function filaProcDOM(f, i){
+  var reg = f.id === null ? null : porId(f.id);
+
+  var row = document.createElement('div');
+  row.className = 'fila-proc';
+  if(reg && !reg.fin) row.classList.add('en-marcha');
+
+  /* campo de texto */
+  var campo = document.createElement('div');
+  campo.className = 'campo-proc';
+  var lab = document.createElement('label');
+  lab.textContent = 'Procedimiento ' + (i + 1);
+  var inp = document.createElement('input');
+  inp.value = f.texto;
+  inp.placeholder = 'Tratamiento';
+  inp.autocomplete = 'off';
+  inp.disabled = !!reg;
+  inp.oninput = function(){ f.texto = inp.value; };
+  campo.appendChild(lab);
+  campo.appendChild(inp);
+  /* mientras no haya arrancado, sugiere procedimientos al escribir */
+  if(!reg) campo.appendChild(cajaSugerencias(inp, i));
+
+  /* estado / duracion */
+  var estado = document.createElement('div');
+  estado.className = 'estado';
+  if(reg && !reg.fin){
+    estado.classList.add('curso');
+    estado.textContent = 'En curso desde ' + reg.inicio;
+  } else if(reg){
+    estado.textContent = reg.inicio + ' a ' + reg.fin + '  ·  ' + minutos(reg.inicio, reg.fin) + ' min';
+  }
+
+  /* boton principal: Iniciar -> Terminar -> Listo */
+  var btn = document.createElement('button');
+  btn.className = 'btn btn-sm';
+  if(!reg){
+    btn.className += ' btn-rosa';
+    btn.innerHTML = '&#9654; Iniciar';
+    btn.onclick = function(){ iniciarFila(i); };
+  } else if(!reg.fin){
+    btn.className += ' btn-verde';
+    btn.innerHTML = '&#9632; Terminar';
+    btn.onclick = function(){ terminarFila(i); };
+  } else {
+    btn.className += ' btn-listo';
+    btn.textContent = 'Listo';
+    btn.disabled = true;
+  }
+
+  /* quitar renglon (solo si no arranco y queda mas de uno) */
+  var quitar = document.createElement('button');
+  quitar.className = 'quitar';
+  quitar.innerHTML = '&times;';
+  quitar.title = 'Quitar este renglon';
+  quitar.onclick = function(){ filas.splice(i, 1); pintarProcs(); };
+  if(reg || filas.length <= 1) quitar.classList.add('invisible');
+
+  row.appendChild(campo);
+  row.appendChild(estado);
+  row.appendChild(btn);
+  row.appendChild(quitar);
+  return row;
+}
+
+function iniciarFila(i){
+  var f = filas[i];
+  if(f.id !== null) return;
+
+  var pac = $('inPaciente').value.trim();
+  if(!pac) return aviso('Escribe el nombre de la paciente');
+  var txt = (f.texto || '').trim();
+  if(!txt) return aviso('Escribe el procedimiento ' + (i + 1));
+
+  var reg = {
+    id: nuevoId(),
+    cosmiatra: cosmActual,
+    fecha: hoy(),
+    paciente: pac,
+    procedimiento: txt,
+    inicio: ahora(),
+    fin: ''
+  };
+  DB.registros.push(reg);
+  f.id = reg.id;
+  refrescar();
+}
+
+function terminarFila(i){
+  var reg = filas[i].id === null ? null : porId(filas[i].id);
+  if(!reg) return;
+  reg.fin = ahora();
+  refrescar();
+}
+
+$('btnMasProc').onclick = function(){
+  filas.push(filaVacia());
+  pintarProcs();
+  var libres = $('listaProcs').querySelectorAll('input:not([disabled])');
+  if(libres.length) libres[libres.length - 1].focus();
+};
+
+$('btnNueva').onclick = function(){
+  nuevaPaciente();
+  $('inPaciente').focus();
+};
+
+$('inPaciente').onkeydown = function(e){
+  if(e.key === 'Enter'){
+    var libre = $('listaProcs').querySelector('input:not([disabled])');
+    if(libre) libre.focus();
+  }
+};
+
+/* ---------- tabla del dia ----------
+   Solo muestra la fecha de hoy: manana la hoja aparece limpia,
+   pero los registros viejos siguen guardados para el reporte. */
+function pintarHoja(){
+  var f = hoy();
+  var lista = DB.registros.filter(function(r){
+    return r.cosmiatra === cosmActual && r.fecha === f;
+  });
+
+  var tb = $('tbHoy');
+  tb.innerHTML = '';
+  $('vacioHoy').classList.toggle('oculto', lista.length > 0);
+
+  lista.forEach(function(r){
+    var tr = document.createElement('tr');
+    if(!r.fin) tr.className = 'activa';
+
+    tr.innerHTML =
+      '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
+      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + '</td>' +
+      '<td data-tit="Inicio">' + r.inicio + '</td>' +
+      '<td data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
+      '<td class="acciones"></td>';
+
+    var celda = tr.lastChild;
+    if(!r.fin){
+      var b = document.createElement('button');
+      b.className = 'btn btn-verde btn-sm';
+      b.innerHTML = '&#9632; Terminar';
+      b.onclick = function(){ r.fin = ahora(); refrescar(); };
+      celda.appendChild(b);
+    } else {
+      celda.setAttribute('data-tit', 'Duración');
+      celda.innerHTML = '<span class="duracion">' + minutos(r.inicio, r.fin) + ' min</span>';
+    }
+    tb.appendChild(tr);
+  });
+}
+
+/* ---------- pendientes de dias anteriores ----------
+   Atenciones que se iniciaron y nunca se cerraron. Como la hoja solo
+   muestra el dia de hoy, se rescatan aqui para poder cerrarlas. */
+function pintarPendientes(){
+  var f = hoy();
+  var lista = DB.registros.filter(function(r){
+    return r.cosmiatra === cosmActual && !r.fin && r.fecha !== f;
+  });
+
+  $('cardPend').classList.toggle('oculto', lista.length === 0);
+  var tb = $('tbPend');
+  tb.innerHTML = '';
+
+  lista.forEach(function(r){
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td data-tit="Fecha">' + fechaLarga(r.fecha) + '</td>' +
+      '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
+      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + '</td>' +
+      '<td data-tit="Inicio">' + r.inicio + '</td>' +
+      '<td class="acciones"></td>';
+
+    var celda = tr.lastChild;
+
+    var cerrar = document.createElement('button');
+    cerrar.className = 'btn btn-verde btn-sm';
+    cerrar.textContent = 'Poner hora';
+    cerrar.onclick = function(){ cerrarPendiente(r); };
+    celda.appendChild(cerrar);
+
+    var borrar = document.createElement('button');
+    borrar.className = 'quitar';
+    borrar.innerHTML = '&times;';
+    borrar.title = 'Eliminar este registro';
+    borrar.onclick = function(){
+      if(!confirm('Eliminar el registro de ' + r.paciente + ' del ' + fechaLarga(r.fecha) + '?')) return;
+      DB.registros = DB.registros.filter(function(x){ return x.id !== r.id; });
+      refrescar();
+    };
+    celda.appendChild(borrar);
+
+    tb.appendChild(tr);
+  });
+}
+
+function cerrarPendiente(r){
+  var h = prompt('Hora de termino de "' + r.procedimiento + '" (HH:MM)', r.inicio);
+  if(h === null) return;
+  h = h.trim();
+  var p = /^([01]?[0-9]|2[0-3]):([0-5][0-9])$/.exec(h);
+  if(!p) return aviso('Hora invalida. Usa el formato HH:MM, por ejemplo 15:30');
+  var fin = p[1].padStart(2,'0') + ':' + p[2];
+  if(minutos(r.inicio, fin) < 0) return aviso('La hora de termino es anterior a la de inicio');
+  r.fin = fin;
+  refrescar();
+}
+
+/* Si la pagina se queda abierta y pasa la medianoche, la hoja se limpia sola. */
+var diaVista = hoy();
+setInterval(function(){
+  if(hoy() === diaVista) return;
+  diaVista = hoy();
+  if($('p2').classList.contains('oculto')) return;
+  nuevaPaciente();
+  $('fechaHoy').textContent = fechaLarga(diaVista);
+  pintarHoja();
+  pintarPendientes();
+  aviso('Cambio de dia: la hoja empieza limpia');
+}, 30000);
+
+/* ---------- pantalla 3 : reporte ---------- */
+function abrirReporte(){
+  /* si venimos de la hoja de alguien, el reporte es de esa persona */
+  reporteDe = cosmActual;
+
+  var sel = $('fCosm');
+  sel.innerHTML = '<option value="">Todas</option>';
+  DB.cosmiatras.forEach(function(c){
+    var o = document.createElement('option');
+    o.textContent = c;
+    sel.appendChild(o);
+  });
+
+  if(reporteDe){
+    /* solo lo suyo, y sin poder cambiar a otra persona */
+    sel.value = reporteDe;
+    sel.disabled = true;
+  } else {
+    /* desde la lista general se empieza viendo a todas, sin arrastrar
+       el filtro que quedo del reporte personal anterior */
+    sel.value = '';
+    sel.disabled = false;
+  }
+
+  if(!$('fFecha').value) $('fFecha').value = hoy();
+  pantalla(3);
+  pintarReporte();
+}
+
+function filtrados(){
+  var f = $('fFecha').value, c = $('fCosm').value;
+  return DB.registros.filter(function(r){
+    return (!f || r.fecha === f) && (!c || r.cosmiatra === c);
+  });
+}
+
+function pintarReporte(){
+  var datos = filtrados();
+  var cont = $('repPorPersona');
+  cont.innerHTML = '';
+  $('vacioRep').classList.toggle('oculto', datos.length > 0);
+
+  /* totales de arriba: el conjunto de lo filtrado */
+  var tot = 0, pacientes = {};
+  datos.forEach(function(r){
+    var m = minutos(r.inicio, r.fin);
+    if(m) tot += m;
+    pacientes[r.fecha + '|' + r.cosmiatra + '|' + r.paciente] = 1;
+  });
+  $('tPac').textContent = Object.keys(pacientes).length;
+  $('tAt').textContent  = datos.length;
+  $('tMin').textContent = tot;
+
+  /* y debajo, una tarjeta por persona: cada quien con lo suyo */
+  var porPersona = {}, nombres = [];
+  datos.forEach(function(r){
+    if(!porPersona[r.cosmiatra]){ porPersona[r.cosmiatra] = []; nombres.push(r.cosmiatra); }
+    porPersona[r.cosmiatra].push(r);
+  });
+  nombres.sort(function(a, b){ return a.localeCompare(b); });
+  nombres.forEach(function(n){ cont.appendChild(tarjetaPersona(n, porPersona[n])); });
+}
+
+/* Tarjeta con los procedimientos de una sola persona. No lleva
+   columna de cosmiatra: el nombre ya esta en el titulo. */
+function tarjetaPersona(nombre, lista){
+  lista = lista.slice().sort(function(a, b){
+    return (a.fecha + a.inicio).localeCompare(b.fecha + b.inicio);
+  });
+
+  var min = 0, pac = {};
+  lista.forEach(function(r){
+    var m = minutos(r.inicio, r.fin);
+    if(m) min += m;
+    pac[r.fecha + '|' + r.paciente] = 1;
+  });
+
+  var filas = lista.map(function(r){
+    var m = minutos(r.inicio, r.fin);
+    return '<tr>' +
+      '<td data-tit="Fecha">' + fechaLarga(r.fecha) + '</td>' +
+      '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
+      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + '</td>' +
+      '<td data-tit="Inicio">' + r.inicio + '</td>' +
+      '<td data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
+      '<td data-tit="Minutos">' + (m === '' ? '&mdash;' : m) + '</td></tr>';
+  }).join('');
+
+  var nPac = Object.keys(pac).length;
+  var resumen = nPac + (nPac === 1 ? ' paciente' : ' pacientes') +
+                ' &middot; ' + lista.length + (lista.length === 1 ? ' procedimiento' : ' procedimientos') +
+                ' &middot; ' + min + ' min';
+
+  var div = document.createElement('div');
+  div.className = 'card';
+  div.innerHTML =
+    '<div class="card-titulo"><b>' + limpio(nombre) + '</b>' +
+    '<span class="fecha">' + resumen + '</span></div>' +
+    '<table><thead><tr><th>Fecha</th><th>Paciente</th><th>Procedimiento</th>' +
+    '<th>Inicio</th><th>T&eacute;rmino</th><th>Min</th></tr></thead>' +
+    '<tbody>' + filas + '</tbody></table>';
+  return div;
+}
+
+$('fFecha').onchange = pintarReporte;
+$('fCosm').onchange  = pintarReporte;
+
+$('btnExcel').onclick = enviarFiltrados;
+
+$('btnCSV').onclick = function(){
+  var datos = filtrados();
+  if(!datos.length) return aviso('No hay registros para exportar');
+  var salto = String.fromCharCode(10);
+  var csv = 'Fecha;Cosmiatra;Paciente;Procedimiento;Hora inicio;Hora termino;Minutos' + salto;
+  datos.forEach(function(r){
+    csv += [fechaLarga(r.fecha), r.cosmiatra, r.paciente, r.procedimiento,
+            r.inicio, r.fin, minutos(r.inicio, r.fin)].join(';') + salto;
+  });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([String.fromCharCode(65279) + csv], { type:'text/csv;charset=utf-8' }));
+  a.download = 'productividad_' + ($('fFecha').value || 'todo') + '.csv';
+  a.click();
+};
+
+/* ============================================================
+   ENVIO A GOOGLE SHEETS
+   ------------------------------------------------------------
+   Cada procedimiento TERMINADO se manda como una fila, con el
+   mismo orden de columnas que ya tiene la hoja. Si no hay
+   internet queda pendiente y se reintenta solo: al terminar el
+   siguiente procedimiento o al abrir la pagina.
+   ============================================================ */
+
+var SHEETS_URL   = 'https://script.google.com/macros/s/AKfycbyz51f-bY6Mo3f0KiCjqgH-F636YPn9-EgbQ7XBl67Ua1e_MKQlw4xd6LPYg9iprAFy/exec';
+/* URL /exec del despliegue en Apps Script */
+var SHEETS_TOKEN = 'cosmiatras-2026';   /* el mismo que pusiste en Codigo.gs */
+
+var enviando = false;
+
+function pendientesEnvio(){
+  return DB.registros.filter(function(r){ return r.fin && !r.enviado; });
+}
+
+function pintarEstadoEnvio(){
+  var el = $('estadoEnvio');
+  if(!el) return;
+  if(!SHEETS_URL){ el.textContent = 'Hoja no conectada'; return; }
+  var n = pendientesEnvio().length;
+  el.textContent = n ? (n === 1 ? '1 sin enviar' : n + ' sin enviar') : 'Todo enviado';
+}
+
+/* Envia una lista de registros. "manual" = lo pidio la persona con
+   el boton, asi que conviene avisarle de todo; si es automatico se
+   avisa solo cuando hay algo que contar. */
+function enviarLista(lista, manual){
+  if(!SHEETS_URL){ if(manual) aviso('Falta conectar la hoja: no hay URL configurada'); return; }
+  if(enviando){    if(manual) aviso('Ya hay un envio en curso, espera un momento'); return; }
+  if(!lista.length){ if(manual) aviso('No hay procedimientos terminados para enviar'); return; }
+
+  enviando = true;
+  if(manual) aviso('Enviando ' + lista.length + '...');
+
+  var cuerpo = {
+    token: SHEETS_TOKEN,
+    registros: lista.map(function(r){
+      return {
+        id: r.id, fecha: r.fecha, paciente: r.paciente, cosmiatra: r.cosmiatra,
+        procedimiento: r.procedimiento, inicio: r.inicio, fin: r.fin
+      };
+    })
+  };
+
+  /* text/plain a proposito: evita la peticion previa (preflight)
+     que Apps Script no sabe responder. */
+  fetch(SHEETS_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body:    JSON.stringify(cuerpo)
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(res){
+    if(!res.ok) throw new Error(res.error || 'la hoja respondio sin ok');
+    (res.ids || []).forEach(function(id){
+      var r = porId(id);
+      if(r) r.enviado = true;
+    });
+    guardar();
+
+    var repes = (res.repetidos || []).length;
+    if(res.filas || manual){
+      /* el detalle dice cuantas filas fueron a cada pestana */
+      var partes = (res.detalle || []).map(function(d){ return d.filas + ' en ' + d.hoja; });
+      var txt = 'Guardado: ' + (partes.length ? partes.join(' | ') : res.filas + ' filas');
+      if(repes) txt += ' (' + repes + ' ya estaban)';
+      aviso(txt);
+    }
+  })
+  .catch(function(){
+    aviso(manual ? 'No se pudo enviar. Revisa la conexion y vuelve a intentar'
+                 : 'Sin conexion: queda pendiente de enviar');
+  })
+  .then(function(){
+    enviando = false;
+    pintarEstadoEnvio();
+  });
+}
+
+/* Envio automatico: solo lo terminado que aun no se mando. */
+function enviarPendientes(){
+  pintarEstadoEnvio();
+  enviarLista(pendientesEnvio(), false);
+}
+
+/* Boton "Enviar a la hoja": manda lo que se ve en el reporte segun
+   los filtros de fecha y cosmiatra. Si algo ya estaba en la hoja el
+   script lo reconoce por su id y no lo duplica. */
+function enviarFiltrados(){
+  enviarLista(filtrados().filter(function(r){ return r.fin; }), true);
+}
+
+/* Marca todo lo que hay ahora como ya enviado. Se usa UNA vez, al
+   conectar la hoja por primera vez, para no duplicar lo que ya
+   estaba en el Excel. Desde la consola:  yaEstabaEnElExcel()  */
+function yaEstabaEnElExcel(){
+  var n = 0;
+  DB.registros.forEach(function(r){ if(!r.enviado){ r.enviado = true; n++; } });
+  guardar();
+  pintarEstadoEnvio();
+  aviso(n + ' registros marcados como ya enviados');
+  return n;
+}
+
+/* ---------- navegacion ---------- */
+$('btnReporte').onclick = abrirReporte;
+
+$('btnVolver').onclick = function(){
+  /* del reporte de una persona se vuelve a su hoja, no a la lista */
+  if(!$('p3').classList.contains('oculto') && reporteDe){
+    reporteDe = null;
+    pantalla(2);
+    pintarHoja();
+    pintarPendientes();
+    return;
+  }
+  reporteDe  = null;
+  cosmActual = null;
+  pintarCosmiatras();
+  pantalla(1);
+};
+
+pintarCosmiatras();
+pantalla(1);
+enviarPendientes();
+</script>
+</body>
+</html>
