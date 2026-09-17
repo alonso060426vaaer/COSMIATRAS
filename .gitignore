@@ -1,0 +1,7 @@
+# Copias de seguridad: no tienen por que publicarse
+*.bak
+
+# El endpoint vive dentro de Apps Script, no en la web.
+# Publicarlo dejaria el token y el id del libro a la vista.
+apps-script/
+Codigo.gs
