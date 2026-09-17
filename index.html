@@ -344,6 +344,11 @@ function pintarProcs(){
 
 var MAX_SUGERENCIAS = 8;
 
+/* Momento en que se eligio una sugerencia. Sirve de red de seguridad:
+   si justo despues llega un clic al boton Iniciar, es el clic fantasma
+   del tactil y no una persona pulsandolo. */
+var ultimaEleccion = 0;
+
 /* compara sin tildes ni mayusculas: "lampara" encuentra "Lampara LED" */
 function sinTildes(t){
   return String(t).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -425,6 +430,7 @@ function cajaSugerencias(inp){
   function elegir(texto){
     inp.value = texto;
     inp.oninput();          /* para que se guarde en la fila */
+    ultimaEleccion = Date.now();
     cerrar();
     inp.focus();
   }
@@ -438,10 +444,17 @@ function cajaSugerencias(inp){
     lista.forEach(function(p){
       var op = document.createElement('div');
       op.textContent = p;
-      /* pointerdown y no click: el click llega despues de que el
-         campo pierde el foco, y para entonces ya se cerro */
-      op.addEventListener('pointerdown', function(ev){
+      /* En el telefono la lista tapa el boton Iniciar. Si se cerrara
+         al tocar, el clic que llega despues aterrizaria en el boton y
+         arrancaria el cronometro solo. Por eso:
+           - pointerdown: solo evita que el campo pierda el foco, para
+             que la lista siga abierta cuando llegue el clic;
+           - click: elige y cierra. El clic se lo come esta opcion y
+             nunca llega a lo que hay debajo. */
+      op.addEventListener('pointerdown', function(ev){ ev.preventDefault(); });
+      op.addEventListener('click', function(ev){
         ev.preventDefault();
+        ev.stopPropagation();
         elegir(p);
       });
       caja.appendChild(op);
@@ -548,6 +561,10 @@ function filaProcDOM(f, i){
 }
 
 function iniciarFila(i){
+  /* si se acaba de elegir del autocompletado, esto es el clic fantasma
+     que el tactil manda sobre lo que habia debajo de la lista */
+  if(Date.now() - ultimaEleccion < 600) return;
+
   var f = filas[i];
   if(f.id !== null) return;
 
