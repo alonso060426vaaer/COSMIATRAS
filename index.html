@@ -940,9 +940,15 @@ function enviarLista(lista, manual){
       aviso(txt);
     }
   })
-  .catch(function(){
-    aviso(manual ? 'No se pudo enviar. Revisa la conexion y vuelve a intentar'
-                 : 'Sin conexion: queda pendiente de enviar');
+  .catch(function(err){
+    /* antes decia "sin conexion" pasara lo que pasara, y eso despista:
+       aqui cae tanto quedarse sin internet como que la hoja conteste mal */
+    var motivo;
+    if(!navigator.onLine)                          motivo = 'sin internet';
+    else if(err && /fetch|network|failed/i.test(String(err.message))) motivo = 'no se pudo conectar';
+    else                                           motivo = String((err && err.message) || err);
+
+    aviso('Queda pendiente (' + motivo + '). Se reintenta solo');
   })
   .then(function(){
     enviando = false;
@@ -962,6 +968,24 @@ function enviarPendientes(){
 function enviarFiltrados(){
   enviarLista(filtrados().filter(function(r){ return r.fin; }), true);
 }
+
+/* ---------- reintentos automaticos ----------
+   En el telefono la conexion se va y vuelve, y el navegador congela la
+   pagina cuando se bloquea la pantalla. Con esto lo pendiente se manda
+   solo, sin que nadie tenga que acordarse. */
+
+/* al recuperar la conexion */
+window.addEventListener('online', function(){ enviarPendientes(); });
+
+/* al volver a la app despues de bloquear el telefono o cambiar de pestaña */
+document.addEventListener('visibilitychange', function(){
+  if(!document.hidden) enviarPendientes();
+});
+
+/* y por si acaso, una vez por minuto mientras quede algo */
+setInterval(function(){
+  if(pendientesEnvio().length) enviarPendientes();
+}, 60000);
 
 /* Marca todo lo que hay ahora como ya enviado. Se usa UNA vez, al
    conectar la hoja por primera vez, para no duplicar lo que ya
