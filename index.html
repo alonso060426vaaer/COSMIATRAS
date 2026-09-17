@@ -402,7 +402,7 @@ function buscarProcs(texto){
   return zonas.concat(empiezan, dentro).slice(0, MAX_SUGERENCIAS);
 }
 
-function cajaSugerencias(inp, i){
+function cajaSugerencias(inp){
   var caja = document.createElement('div');
   caja.className = 'sugerencias oculto';
   var opciones = [], activa = -1;
@@ -460,9 +460,12 @@ function cajaSugerencias(inp, i){
     if(abierta && e.key === 'ArrowUp'){   e.preventDefault(); marcar(activa - 1); return; }
     if(abierta && e.key === 'Escape'){    cerrar(); return; }
     if(e.key === 'Enter'){
-      if(abierta && activa >= 0){ e.preventDefault(); elegir(opciones[activa].textContent); return; }
+      /* Enter solo elige de la lista o la cierra. El cronometro
+         arranca UNICAMENTE con el boton Iniciar, para que no se
+         dispare sin querer con el teclado del telefono. */
+      e.preventDefault();
+      if(abierta && activa >= 0){ elegir(opciones[activa].textContent); return; }
       cerrar();
-      iniciarFila(i);
     }
   };
 
@@ -490,7 +493,7 @@ function filaProcDOM(f, i){
   campo.appendChild(lab);
   campo.appendChild(inp);
   /* mientras no haya arrancado, sugiere procedimientos al escribir */
-  if(!reg) campo.appendChild(cajaSugerencias(inp, i));
+  if(!reg) campo.appendChild(cajaSugerencias(inp));
 
   /* estado / duracion */
   var estado = document.createElement('div');
@@ -519,13 +522,23 @@ function filaProcDOM(f, i){
     btn.disabled = true;
   }
 
-  /* quitar renglon (solo si no arranco y queda mas de uno) */
+  /* La X cambia segun el momento: quita el renglon si todavia no
+     arranco, y cancela el procedimiento si ya esta en marcha. */
   var quitar = document.createElement('button');
   quitar.className = 'quitar';
   quitar.innerHTML = '&times;';
-  quitar.title = 'Quitar este renglon';
-  quitar.onclick = function(){ filas.splice(i, 1); pintarProcs(); };
-  if(reg || filas.length <= 1) quitar.classList.add('invisible');
+
+  if(reg && !reg.fin){
+    quitar.classList.add('cancelar');
+    quitar.title = 'Cancelar este procedimiento';
+    quitar.onclick = function(){ cancelarRegistro(reg); };
+  } else if(reg){
+    quitar.classList.add('invisible');          /* ya termino: no se cancela */
+  } else {
+    quitar.title = 'Quitar este renglon';
+    quitar.onclick = function(){ filas.splice(i, 1); pintarProcs(); };
+    if(filas.length <= 1) quitar.classList.add('invisible');
+  }
 
   row.appendChild(campo);
   row.appendChild(estado);
@@ -555,6 +568,19 @@ function iniciarFila(i){
   DB.registros.push(reg);
   f.id = reg.id;
   refrescar();
+}
+
+/* Cancela un procedimiento que se inicio por error: borra el registro
+   y apaga el cronometro. Solo mientras esta en marcha; si ya termino
+   se fue a la hoja y no se toca desde aqui. */
+function cancelarRegistro(reg){
+  if(!reg || reg.fin) return;
+  if(!confirm('Cancelar "' + reg.procedimiento + '"?\n\nSe borra el registro y el cronometro.')) return;
+
+  DB.registros = DB.registros.filter(function(x){ return x.id !== reg.id; });
+  filas.forEach(function(f){ if(f.id === reg.id) f.id = null; });
+  refrescar();
+  aviso('Procedimiento cancelado');
 }
 
 function terminarFila(i){
@@ -614,6 +640,14 @@ function pintarHoja(){
       b.innerHTML = '&#9632; Terminar';
       b.onclick = function(){ r.fin = ahora(); refrescar(); };
       celda.appendChild(b);
+
+      /* por si lo inicio por error */
+      var x = document.createElement('button');
+      x.className = 'quitar cancelar';
+      x.innerHTML = '&times;';
+      x.title = 'Cancelar este procedimiento';
+      x.onclick = function(){ cancelarRegistro(r); };
+      celda.appendChild(x);
     } else {
       celda.setAttribute('data-tit', 'Duración');
       celda.innerHTML = '<span class="duracion">' + minutos(r.inicio, r.fin) + ' min</span>';

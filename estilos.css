@@ -90,6 +90,9 @@ select:disabled{background:#f7f4f5;color:var(--texto);opacity:1;
         padding:0 0 8px;font-family:inherit}
 .quitar:hover{color:#d24b4b}
 .quitar.invisible{visibility:hidden;pointer-events:none}
+/* la X de un procedimiento en marcha: se ve, porque cancela de verdad */
+.quitar.cancelar{color:#c4736f}
+.quitar.cancelar:hover{color:#d24b4b}
 
 /* ---------- sugerencias de procedimiento ---------- */
 .campo-proc{position:relative}
