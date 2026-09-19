@@ -395,21 +395,69 @@ function pintarAtenciones(){
   if(buscando) $('inPaciente').value = '';
 }
 
+/* Cuenta como esta la ficha: cuantos corriendo y cuantos terminados. */
+function estadoFicha(a){
+  var e = { enCurso: 0, hechos: 0, libres: 0 };
+  a.filas.forEach(function(f){
+    var r = f.id === null ? null : porId(f.id);
+    if(!r)            e.libres++;
+    else if(!r.fin)   e.enCurso++;
+    else              e.hechos++;
+  });
+  return e;
+}
+
 function tarjetaAtencion(a, k){
+  var e = estadoFicha(a);
+
   var card = document.createElement('div');
-  card.className = 'card card-atencion';
+  card.className = 'card card-atencion' + (a.plegada ? ' plegada' : '');
 
   var tit = document.createElement('div');
   tit.className = 'card-titulo';
+
   var nom = document.createElement('b');
   nom.textContent = a.paciente;
   tit.appendChild(nom);
+
+  /* ---- plegada: una sola linea, se toca para volver a abrirla.
+     Para terminar los procedimientos estan los botones de la tabla
+     de Hoy, asi que aqui no hace falta verlos otra vez. ---- */
+  if(a.plegada){
+    var partes = [];
+    if(e.enCurso) partes.push(e.enCurso + ' en curso');
+    if(e.hechos)  partes.push(e.hechos + (e.hechos === 1 ? ' terminado' : ' terminados'));
+
+    var res = document.createElement('span');
+    res.className = 'fecha resumen-ficha';
+    res.textContent = (partes.join(' \u00b7 ') || 'sin procedimientos') + '  \u25be';
+    tit.appendChild(res);
+
+    tit.classList.add('plegable');
+    tit.onclick = function(){ a.plegada = false; guardarAbiertas(); pintarAtenciones(); };
+    card.appendChild(tit);
+    return card;
+  }
+
+  /* ---- abierta ---- */
+  var acciones = document.createElement('div');
+  acciones.className = 'acciones-ficha';
+
+  if(e.enCurso + e.hechos > 0){
+    var ocultar = document.createElement('button');
+    ocultar.className = 'btn btn-linea btn-sm';
+    ocultar.textContent = 'Ocultar';
+    ocultar.onclick = function(){ a.plegada = true; guardarAbiertas(); pintarAtenciones(); };
+    acciones.appendChild(ocultar);
+  }
 
   var cerrar = document.createElement('button');
   cerrar.className = 'btn btn-linea btn-sm';
   cerrar.textContent = 'Cerrar ficha';
   cerrar.onclick = function(){ cerrarAtencion(k); };
-  tit.appendChild(cerrar);
+  acciones.appendChild(cerrar);
+
+  tit.appendChild(acciones);
   card.appendChild(tit);
 
   a.filas.forEach(function(f, i){ card.appendChild(filaProcDOM(a, k, f, i)); });
@@ -715,6 +763,12 @@ function iniciarFila(k, i){
   };
   DB.registros.push(reg);
   f.id = reg.id;
+
+  /* si ya no queda ningun renglon por escribir, la ficha se pliega
+     sola: lo que sigue es terminar, y eso se hace desde la tabla
+     de Hoy, que esta justo debajo */
+  if(!a.filas.some(function(x){ return x.id === null; })) a.plegada = true;
+
   refrescar();
 }
 
@@ -773,11 +827,18 @@ function pintarHoja(){
     var tr = document.createElement('tr');
     if(!r.fin) tr.className = 'activa';
 
+    /* en el telefono las tres columnas de tiempo se juntan en una
+       sola linea, que ocupa mucho menos */
+    var horario = r.fin
+      ? r.inicio + ' \u2013 ' + r.fin + '  \u00b7  ' + minutos(r.inicio, r.fin) + ' min'
+      : 'desde ' + r.inicio;
+
     tr.innerHTML =
       '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
       '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + '</td>' +
-      '<td data-tit="Inicio">' + r.inicio + '</td>' +
-      '<td data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
+      '<td class="solo-escritorio" data-tit="Inicio">' + r.inicio + '</td>' +
+      '<td class="solo-escritorio" data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
+      '<td class="solo-movil horario">' + horario + '</td>' +
       '<td class="acciones"></td>';
 
     var celda = tr.lastChild;

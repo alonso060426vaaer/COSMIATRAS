@@ -99,6 +99,17 @@ select:disabled{background:#f7f4f5;color:var(--texto);opacity:1;
                             border-bottom:1px solid #f0eaed}
 .card-atencion .card-titulo b{font-size:18px;color:var(--rosa)}
 #btnOtra{margin-bottom:16px}
+.acciones-ficha{display:flex;gap:8px}
+
+/* ficha plegada: una sola linea con el resumen */
+.card-atencion.plegada{padding:14px 20px}
+.card-atencion.plegada .card-titulo{margin-bottom:0;padding-bottom:0;border-bottom:0}
+.card-titulo.plegable{cursor:pointer}
+.card-titulo.plegable:hover b{text-decoration:underline}
+.resumen-ficha{white-space:nowrap}
+
+/* se muestran segun el tamano de pantalla */
+.solo-movil{display:none}
 
 /* ---------- sugerencias de procedimiento ---------- */
 .campo-proc{position:relative}
@@ -234,6 +245,29 @@ tr.activa td{background:var(--verde-bg)}
   .card-atencion .card-titulo{flex-wrap:nowrap;gap:10px}
   .card-atencion .card-titulo b{flex:1 1 auto;font-size:17px;min-width:0}
   .card-atencion .card-titulo .btn{flex:0 0 auto;white-space:nowrap}
+
+  /* van con #tbHoy delante a proposito: la regla general de mas abajo
+     es mas fuerte y si no, gana ella y se ven las dos versiones */
+  #tbHoy td.solo-escritorio{display:none}
+  #tbHoy td.solo-movil{display:block}
+  .solo-escritorio{display:none}
+  .solo-movil{display:block}
+  .card-atencion.plegada{padding:12px 14px}
+
+  /* La tabla de Hoy, compacta: nombre, procedimiento y horario en
+     tres lineas cortas a la izquierda, y el boton a la derecha.
+     Sin etiquetas, que ocupaban mas que el propio dato. */
+  #tbHoy tr{display:grid;grid-template-columns:1fr auto;align-items:center;
+            gap:1px 10px;padding:10px 12px}
+  #tbHoy td{display:block;padding:0;border:0;text-align:left}
+  #tbHoy td::before{content:none}
+  #tbHoy td.col-paciente{grid-column:1;font-size:16px;padding:0}
+  #tbHoy td[data-tit="Procedimiento"]{grid-column:1;font-size:14px}
+  #tbHoy td.horario{grid-column:1;font-size:13px;color:var(--gris)}
+  #tbHoy td.acciones{grid-column:2;grid-row:1 / -1;justify-content:flex-end;
+                     padding:0;gap:6px}
+  #tbHoy td.acciones .btn{flex:0 0 auto}
+  #tbHoy td.acciones .duracion{display:none}   /* ya va en el horario */
 
   /* los dos botones del reporte, uno debajo del otro y a lo ancho */
   .fila-form .btn{width:100%}
