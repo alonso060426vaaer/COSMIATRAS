@@ -36,19 +36,21 @@
 
   <!-- PANTALLA 2 : hoja del dia -->
   <section id="p2" class="oculto">
-    <div class="card">
+    <!-- paso 1: a quien va a atender -->
+    <div class="card" id="cardBuscar">
       <div class="fila-paciente">
-        <div>
+        <div class="campo-proc">
           <label>Paciente</label>
-          <input id="inPaciente" placeholder="Nombre" autocomplete="off">
+          <input id="inPaciente" placeholder="Nombre de la paciente" autocomplete="off">
         </div>
-        <button class="btn btn-linea btn-sm oculto" id="btnNueva">Nueva paciente</button>
+        <button class="btn btn-rosa" id="btnAtender">Atender</button>
       </div>
-
-      <div id="listaProcs"></div>
-
-      <button class="btn btn-linea btn-sm" id="btnMasProc">+ Agregar procedimiento</button>
     </div>
+
+    <!-- paso 2: una ficha por paciente en atencion -->
+    <div id="atenciones"></div>
+
+    <button class="btn btn-linea oculto" id="btnOtra">+ Atender otra paciente</button>
 
     <!-- atenciones que quedaron abiertas en dias anteriores -->
     <div class="card card-pendientes oculto" id="cardPend">
@@ -116,12 +118,15 @@
 /* ---------- datos ---------- */
 var DB = {
   cosmiatras: JSON.parse(localStorage.getItem('cosmiatras') || '["Denisse","Pamela","Karen"]'),
-  registros:  JSON.parse(localStorage.getItem('registros')  || '[]')
+  registros:  JSON.parse(localStorage.getItem('registros')  || '[]'),
+  /* pacientes que cada cosmiatra tiene abiertas ahora mismo */
+  abiertas:   JSON.parse(localStorage.getItem('abiertas')   || '{}')
 };
 
 function guardar(){
   localStorage.setItem('cosmiatras', JSON.stringify(DB.cosmiatras));
   localStorage.setItem('registros',  JSON.stringify(DB.registros));
+  localStorage.setItem('abiertas',   JSON.stringify(DB.abiertas));
 }
 
 /* Identificador propio de cada registro. Se usa en vez de la posicion
@@ -289,48 +294,142 @@ $('btnAgregar').onclick = function(){
      id === null  -> el procedimiento todavia no arranca
      id           -> identificador de su registro en DB.registros
    ============================================================ */
-var filas = [];
+/* Una cosmiatra puede tener VARIAS pacientes abiertas a la vez.
+
+   atenciones = [ { paciente, fecha, filas: [ {texto, id} ] } ]
+       id === null  -> ese procedimiento todavia no arranca
+       id           -> identificador de su registro en DB.registros
+
+   Se guardan en el navegador: si recarga la pagina o se le bloquea el
+   telefono, sus pacientes siguen abiertas donde las dejo. */
+var atenciones   = [];
+var pidiendoOtra = false;   /* esta escribiendo el nombre de otra paciente */
 
 function filaVacia(){ return { texto:'', id:null }; }
 
 function abrirHoja(nombre){
   cosmActual = nombre;
+
+  /* las fichas que dejo abiertas otro dia no se arrastran. Si algo
+     quedo en marcha, aparece abajo en "Quedaron sin cerrar". */
+  atenciones = (DB.abiertas[nombre] || []).filter(function(a){ return a.fecha === hoy(); });
+  pidiendoOtra = false;
+
   $('fechaHoy').textContent = fechaLarga(hoy());
-  nuevaPaciente();
   pantalla(2);
+  pintarAtenciones();
   pintarHoja();
   pintarPendientes();
-  $('inPaciente').focus();
+  guardarAbiertas();
+
+  if(!atenciones.length) $('inPaciente').focus();
 }
 
-function nuevaPaciente(){
-  filas = [filaVacia(), filaVacia()];
-  $('inPaciente').value = '';
-  pintarProcs();
+function guardarAbiertas(){
+  if(cosmActual) DB.abiertas[cosmActual] = atenciones;
+  guardar();
 }
 
-function hayIniciados(){
-  return filas.some(function(f){ return f.id !== null; });
+/* Abre la ficha de una paciente: aparece su tarjeta con el primer
+   procedimiento listo para escribir. */
+function atenderPaciente(){
+  if(Date.now() - ultimaEleccion < 600) return;   /* clic fantasma del tactil */
+
+  var nombre = $('inPaciente').value.trim();
+  if(!nombre) return aviso('Escribe el nombre de la paciente');
+
+  for(var k = 0; k < atenciones.length; k++){
+    if(atenciones[k].paciente.toLowerCase() === nombre.toLowerCase()){
+      pidiendoOtra = false;
+      pintarAtenciones();
+      return aviso('A ' + atenciones[k].paciente + ' ya la estas atendiendo');
+    }
+  }
+
+  atenciones.push({ paciente: nombre, fecha: hoy(), filas: [filaVacia()] });
+  pidiendoOtra = false;
+  guardarAbiertas();
+  pintarAtenciones();
+
+  var libre = document.querySelector('#atenciones input:not([disabled])');
+  if(libre) libre.focus();
+}
+
+/* Cierra la ficha. Solo si no le queda nada en curso, para que no se
+   pierda un cronometro andando. */
+function cerrarAtencion(k){
+  var a = atenciones[k];
+  if(!a) return;
+
+  var enCurso = a.filas.some(function(f){
+    var r = f.id === null ? null : porId(f.id);
+    return r && !r.fin;
+  });
+  if(enCurso) return aviso('Termina o cancela lo que tiene en curso antes de cerrar');
+
+  atenciones.splice(k, 1);
+  if(!atenciones.length) pidiendoOtra = false;
+  guardarAbiertas();
+  pintarAtenciones();
 }
 
 function refrescar(){
-  guardar();
-  pintarProcs();
+  guardarAbiertas();
+  pintarAtenciones();
   pintarHoja();
   pintarPendientes();
   enviarPendientes();
 }
 
-/* ---------- renglones de procedimiento ---------- */
-function pintarProcs(){
-  var cont = $('listaProcs');
+/* ---------- las fichas abiertas ---------- */
+function pintarAtenciones(){
+  var cont = $('atenciones');
   cont.innerHTML = '';
-  filas.forEach(function(f, i){ cont.appendChild(filaProcDOM(f, i)); });
+  atenciones.forEach(function(a, k){ cont.appendChild(tarjetaAtencion(a, k)); });
 
-  /* mientras haya algo iniciado, el nombre de la paciente queda fijo */
-  var bloquear = hayIniciados();
-  $('inPaciente').disabled = bloquear;
-  $('btnNueva').classList.toggle('oculto', !bloquear);
+  /* el buscador se ve cuando no hay nadie abierto, o cuando ella
+     pidio atender a otra */
+  var buscando = (atenciones.length === 0) || pidiendoOtra;
+  $('cardBuscar').classList.toggle('oculto', !buscando);
+  $('btnOtra').classList.toggle('oculto', buscando);
+  if(buscando) $('inPaciente').value = '';
+}
+
+function tarjetaAtencion(a, k){
+  var card = document.createElement('div');
+  card.className = 'card card-atencion';
+
+  var tit = document.createElement('div');
+  tit.className = 'card-titulo';
+  var nom = document.createElement('b');
+  nom.textContent = a.paciente;
+  tit.appendChild(nom);
+
+  var cerrar = document.createElement('button');
+  cerrar.className = 'btn btn-linea btn-sm';
+  cerrar.textContent = 'Cerrar ficha';
+  cerrar.onclick = function(){ cerrarAtencion(k); };
+  tit.appendChild(cerrar);
+  card.appendChild(tit);
+
+  a.filas.forEach(function(f, i){ card.appendChild(filaProcDOM(a, k, f, i)); });
+
+  var mas = document.createElement('button');
+  mas.className = 'btn btn-linea btn-sm';
+  mas.textContent = '+ Agregar procedimiento';
+  mas.onclick = function(){
+    a.filas.push(filaVacia());
+    guardarAbiertas();
+    pintarAtenciones();
+    var t = $('atenciones').children[k];
+    if(t){
+      var libres = t.querySelectorAll('input:not([disabled])');
+      if(libres.length) libres[libres.length - 1].focus();
+    }
+  };
+  card.appendChild(mas);
+
+  return card;
 }
 
 /* ============================================================
@@ -407,7 +506,37 @@ function buscarProcs(texto){
   return zonas.concat(empiezan, dentro).slice(0, MAX_SUGERENCIAS);
 }
 
-function cajaSugerencias(inp){
+/* La misma caja sirve para procedimientos y para pacientes:
+     buscar  -> funcion que devuelve la lista de coincidencias
+     alEnter -> que hacer con Enter cuando no hay nada marcado
+                (en procedimientos no se pasa nada: Enter solo cierra,
+                 para que el cronometro arranque unicamente con el boton) */
+/* Pacientes que ya se atendieron antes, de la mas reciente a la mas
+   antigua, para no volver a escribir el nombre entero cada vez. */
+function buscarPacientes(texto){
+  var q = sinTildes(texto).trim();
+  if(q.length < 2) return [];
+
+  var tal_cual = String(texto).trim();
+  var vistos = {}, salida = [];
+
+  for(var k = DB.registros.length - 1; k >= 0; k--){
+    var p = String(DB.registros[k].paciente || '').trim();
+    if(!p) continue;
+
+    var clave = p.toLowerCase();
+    if(vistos[clave]) continue;
+    if(sinTildes(p).indexOf(q) < 0) continue;
+    if(p === tal_cual) continue;          /* ya lo escribio identico */
+
+    vistos[clave] = true;
+    salida.push(p);
+    if(salida.length >= MAX_SUGERENCIAS) break;
+  }
+  return salida;
+}
+
+function cajaSugerencias(inp, buscar, alEnter){
   var caja = document.createElement('div');
   caja.className = 'sugerencias oculto';
   var opciones = [], activa = -1;
@@ -436,7 +565,7 @@ function cajaSugerencias(inp){
   }
 
   function pintar(){
-    var lista = buscarProcs(inp.value);
+    var lista = buscar(inp.value);
     caja.innerHTML = '';
     opciones = [];
     activa = -1;
@@ -479,13 +608,14 @@ function cajaSugerencias(inp){
       e.preventDefault();
       if(abierta && activa >= 0){ elegir(opciones[activa].textContent); return; }
       cerrar();
+      if(alEnter) alEnter();
     }
   };
 
   return caja;
 }
 
-function filaProcDOM(f, i){
+function filaProcDOM(a, k, f, i){
   var reg = f.id === null ? null : porId(f.id);
 
   var row = document.createElement('div');
@@ -506,7 +636,7 @@ function filaProcDOM(f, i){
   campo.appendChild(lab);
   campo.appendChild(inp);
   /* mientras no haya arrancado, sugiere procedimientos al escribir */
-  if(!reg) campo.appendChild(cajaSugerencias(inp));
+  if(!reg) campo.appendChild(cajaSugerencias(inp, buscarProcs));
 
   /* estado / duracion */
   var estado = document.createElement('div');
@@ -524,11 +654,11 @@ function filaProcDOM(f, i){
   if(!reg){
     btn.className += ' btn-rosa';
     btn.innerHTML = '&#9654; Iniciar';
-    btn.onclick = function(){ iniciarFila(i); };
+    btn.onclick = function(){ iniciarFila(k, i); };
   } else if(!reg.fin){
     btn.className += ' btn-verde';
     btn.innerHTML = '&#9632; Terminar';
-    btn.onclick = function(){ terminarFila(i); };
+    btn.onclick = function(){ terminarFila(k, i); };
   } else {
     btn.className += ' btn-listo';
     btn.textContent = 'Listo';
@@ -549,8 +679,8 @@ function filaProcDOM(f, i){
     quitar.classList.add('invisible');          /* ya termino: no se cancela */
   } else {
     quitar.title = 'Quitar este renglon';
-    quitar.onclick = function(){ filas.splice(i, 1); pintarProcs(); };
-    if(filas.length <= 1) quitar.classList.add('invisible');
+    quitar.onclick = function(){ a.filas.splice(i, 1); guardarAbiertas(); pintarAtenciones(); };
+    if(a.filas.length <= 1) quitar.classList.add('invisible');
   }
 
   row.appendChild(campo);
@@ -560,16 +690,17 @@ function filaProcDOM(f, i){
   return row;
 }
 
-function iniciarFila(i){
+function iniciarFila(k, i){
   /* si se acaba de elegir del autocompletado, esto es el clic fantasma
      que el tactil manda sobre lo que habia debajo de la lista */
   if(Date.now() - ultimaEleccion < 600) return;
 
-  var f = filas[i];
-  if(f.id !== null) return;
+  var a = atenciones[k];
+  if(!a) return;
+  var f = a.filas[i];
+  if(!f || f.id !== null) return;
 
-  var pac = $('inPaciente').value.trim();
-  if(!pac) return aviso('Escribe el nombre de la paciente');
+  var pac = a.paciente;
   var txt = (f.texto || '').trim();
   if(!txt) return aviso('Escribe el procedimiento ' + (i + 1));
 
@@ -595,36 +726,35 @@ function cancelarRegistro(reg){
   if(!confirm('Cancelar "' + reg.procedimiento + '"?\n\nSe borra el registro y el cronometro.')) return;
 
   DB.registros = DB.registros.filter(function(x){ return x.id !== reg.id; });
-  filas.forEach(function(f){ if(f.id === reg.id) f.id = null; });
+  atenciones.forEach(function(a){
+    a.filas.forEach(function(f){ if(f.id === reg.id) f.id = null; });
+  });
   refrescar();
   aviso('Procedimiento cancelado');
 }
 
-function terminarFila(i){
-  var reg = filas[i].id === null ? null : porId(filas[i].id);
+function terminarFila(k, i){
+  var a = atenciones[k];
+  if(!a || !a.filas[i]) return;
+  var reg = a.filas[i].id === null ? null : porId(a.filas[i].id);
   if(!reg) return;
   reg.fin = ahora();
   refrescar();
 }
 
-$('btnMasProc').onclick = function(){
-  filas.push(filaVacia());
-  pintarProcs();
-  var libres = $('listaProcs').querySelectorAll('input:not([disabled])');
-  if(libres.length) libres[libres.length - 1].focus();
-};
+$('btnAtender').onclick = atenderPaciente;
 
-$('btnNueva').onclick = function(){
-  nuevaPaciente();
+$('btnOtra').onclick = function(){
+  pidiendoOtra = true;
+  pintarAtenciones();
   $('inPaciente').focus();
 };
 
-$('inPaciente').onkeydown = function(e){
-  if(e.key === 'Enter'){
-    var libre = $('listaProcs').querySelector('input:not([disabled])');
-    if(libre) libre.focus();
-  }
-};
+/* El campo de la paciente tambien sugiere, con los nombres que ya
+   se atendieron antes. Enter busca, igual que el boton. */
+$('inPaciente').parentElement.appendChild(
+  cajaSugerencias($('inPaciente'), buscarPacientes, atenderPaciente)
+);
 
 /* ---------- tabla del dia ----------
    Solo muestra la fecha de hoy: manana la hoja aparece limpia,
@@ -736,7 +866,12 @@ setInterval(function(){
   if(hoy() === diaVista) return;
   diaVista = hoy();
   if($('p2').classList.contains('oculto')) return;
-  nuevaPaciente();
+  /* las fichas de ayer se recogen; lo que quedo en marcha reaparece
+     abajo en "Quedaron sin cerrar" */
+  atenciones = atenciones.filter(function(a){ return a.fecha === hoy(); });
+  pidiendoOtra = false;
+  guardarAbiertas();
+  pintarAtenciones();
   $('fechaHoy').textContent = fechaLarga(diaVista);
   pintarHoja();
   pintarPendientes();

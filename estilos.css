@@ -94,6 +94,12 @@ select:disabled{background:#f7f4f5;color:var(--texto);opacity:1;
 .quitar.cancelar{color:#c4736f}
 .quitar.cancelar:hover{color:#d24b4b}
 
+/* ---------- ficha de una paciente en atencion ---------- */
+.card-atencion .card-titulo{margin-bottom:16px;padding-bottom:12px;
+                            border-bottom:1px solid #f0eaed}
+.card-atencion .card-titulo b{font-size:18px;color:var(--rosa)}
+#btnOtra{margin-bottom:16px}
+
 /* ---------- sugerencias de procedimiento ---------- */
 .campo-proc{position:relative}
 .sugerencias{position:absolute;left:0;right:0;top:100%;z-index:30;
@@ -218,6 +224,16 @@ tr.activa td{background:var(--verde-bg)}
   /* sugerencias mas altas, para tocarlas con el dedo */
   .sugerencias div{padding:15px 14px;font-size:16px}
   .sugerencias{max-height:46vh}
+
+  /* en el telefono, atender a otra ocupa todo el ancho */
+  #btnOtra{width:100%}
+
+  /* el nombre de la paciente y "Cerrar ficha" comparten renglon:
+     la regla general manda el titulo a su propia linea, y aqui
+     desperdiciaria mucho alto */
+  .card-atencion .card-titulo{flex-wrap:nowrap;gap:10px}
+  .card-atencion .card-titulo b{flex:1 1 auto;font-size:17px;min-width:0}
+  .card-atencion .card-titulo .btn{flex:0 0 auto;white-space:nowrap}
 
   /* los dos botones del reporte, uno debajo del otro y a lo ancho */
   .fila-form .btn{width:100%}
