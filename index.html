@@ -167,6 +167,25 @@ function migrar(){
 }
 migrar();
 
+/* Rescate de una sola vez.
+   Hubo unos dias en que un mensaje escrito despues de mandar la fila
+   se daba por guardado sin serlo: la hoja contestaba que todo bien
+   porque su script todavia no sabia recibirlos. El texto no se
+   perdio -sigue aqui, en el telefono-, asi que se vuelven a marcar
+   para que se manden. Repetir un mensaje no hace daño: se escribe
+   en la misma celda el mismo texto. */
+if(!localStorage.getItem('mensajesRescatados')){
+  var rescatados = 0;
+  DB.registros.forEach(function(r){
+    if(r.enviado && String(r.comentario || '').trim() !== ''){
+      r.comentarioPendiente = true;
+      rescatados++;
+    }
+  });
+  localStorage.setItem('mensajesRescatados', '1');
+  if(rescatados) guardar();
+}
+
 /* Los dos doctores tienen su propia pestana en la hoja de calculo.
    Se agregan una sola vez: si luego los borras de la lista, no vuelven. */
 if(!localStorage.getItem('doctoresAgregados')){
@@ -956,11 +975,12 @@ function panelExtra(reg, f){
     if(reg && reg.enviado) reg.comentarioPendiente = true;
     guardar();
     guardarAbiertas();
+    pintarEstadoEnvio();
   };
 
   /* al salir del campo se manda ya, sin esperar al reintento */
   inp.onchange = function(){
-    if(reg && reg.comentarioPendiente) enviarComentarios();
+    if(reg && reg.comentarioPendiente) enviarComentarios(true);
     pintarHoja();
   };
 
@@ -1501,7 +1521,7 @@ function comentariosPendientes(){
 
 var mandandoComentarios = false;
 
-function enviarComentarios(){
+function enviarComentarios(manual){
   if(mandandoComentarios || !SHEETS_URL) return;
 
   var lista = comentariosPendientes();
@@ -1522,12 +1542,50 @@ function enviarComentarios(){
   .then(function(res){ return res.json(); })
   .then(function(res){
     if(!res.ok) throw new Error(res.error || 'la hoja respondio sin ok');
-    /* solo se da por puesto lo que el script dijo haber encontrado */
-    lista.forEach(function(r){ delete r.comentarioPendiente; });
+
+    /* Una version vieja del script no conoce esta accion, la ignora y
+       contesta que todo bien. Si eso se toma por bueno, el mensaje se
+       borra de la lista de pendientes y no llega nunca. Por eso se
+       exige que diga cuantos puso: si no lo dice, no llego. */
+    var r = res.resultado;
+    if(!r || typeof r.puestos !== 'number'){
+      throw new Error('la hoja todavia no sabe recibir mensajes');
+    }
+
+    /* las que el script no encontro siguen pendientes; el resto, hecho */
+    var perdidas = {};
+    (r.noEncontrados || []).forEach(function(x){
+      perdidas[x.fecha + '|' + x.paciente + '|' + x.inicio] = true;
+    });
+
+    var quedan = 0;
+    lista.forEach(function(reg){
+      if(!perdidas[reg.fecha + '|' + reg.paciente + '|' + reg.inicio]){
+        delete reg.comentarioPendiente;
+        delete reg.intentosMensaje;
+        return;
+      }
+      /* su fila no aparece en la hoja (la borraron, o se cambio una
+         hora). Se reintenta unas cuantas veces y se deja estar: el
+         mensaje no se pierde, se queda en la app. */
+      reg.intentosMensaje = (reg.intentosMensaje || 0) + 1;
+      if(reg.intentosMensaje >= 5) delete reg.comentarioPendiente;
+      else quedan++;
+    });
+
     guardar();
     pintarEstadoEnvio();
+    pintarHoja();
+
+    if(manual) aviso(quedan ? 'Mensaje guardado en la app; su fila no aparece en la hoja'
+                            : 'Mensaje guardado en la hoja');
   })
-  .catch(function(){ /* queda marcado y se reintenta solo */ })
+  .catch(function(err){
+    /* queda marcado y se reintenta solo */
+    pintarEstadoEnvio();
+    if(manual) aviso('El mensaje quedo pendiente (' +
+                     String((err && err.message) || err) + '). Se reintenta solo');
+  })
   .then(function(){ mandandoComentarios = false; });
 }
 
