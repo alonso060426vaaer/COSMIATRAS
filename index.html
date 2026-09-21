@@ -569,15 +569,14 @@ function buscarProcs(texto){
    2) El padron de Odoo, preguntando al buscador que ya tiene
       HISTORIAS CLINICAS. Manda este, que es la lista oficial.
 
-   Para llegar a Odoo hacen falta dos cosas, y si falta alguna la app
-   sigue funcionando con lo del telefono, sin avisos ni errores:
-     - que la app se sirva del mismo XAMPP que HISTORIAS CLINICAS
-       (si esta en internet, no alcanza esa PC);
-     - que la cosmiatra tenga su sesion abierta ahi. Su rol ya trae
-       el permiso que ese buscador pide.
+   Para llegar a Odoo la app tiene que servirse del XAMPP de la
+   clinica, donde vive buscar-paciente.php. Desde internet ese archivo
+   no existe, y entonces se sigue con los nombres del telefono, sin
+   avisos ni errores: asi los pacientes no salen de la clinica.
+   No hace falta iniciar sesion en ningun otro sistema.
    ============================================================ */
 
-var API_PACIENTES = '/HISTORIAS%20CLINICAS/api/recepcion/pacientes.php';
+var API_PACIENTES = 'buscar-paciente.php';   /* al lado de esta pagina */
 
 var cacheOdoo        = {};   /* lo ya preguntado, para no repetir */
 var sinSesionHasta   = 0;    /* si no hay sesion, no insistir un rato */
@@ -631,7 +630,7 @@ function pacientesDeOdoo(texto, cuandoLleguen){
         return res.json();
       })
       .then(function(j){
-        var filas = (j && j.data && j.data.pacientes) || [];
+        var filas = (j && (j.pacientes || (j.data && j.data.pacientes))) || [];
         cacheOdoo[q] = filas.map(function(p){
           return { valor: p.nombre, nota: p.dni || p.codigo || '' };
         });

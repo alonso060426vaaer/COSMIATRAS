@@ -5,3 +5,6 @@
 # Publicarlo dejaria el token y el id del libro a la vista.
 apps-script/
 Codigo.gs
+
+# solo tiene sentido en el servidor de la clinica, donde esta Odoo
+buscar-paciente.php
