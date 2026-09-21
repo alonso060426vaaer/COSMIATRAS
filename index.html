@@ -111,6 +111,12 @@
    Una paciente puede tener varios registros el mismo dia.
    ============================================================ */
 
+/* Marca de version, abajo del todo en gris.
+   Sirve para saber en un segundo si un telefono se quedo con una
+   copia vieja guardada: basta preguntar que dice ahi. Se cambia a
+   mano cada vez que se sube algo. */
+var VERSION_APP = '21/09 · 4';
+
 /* ---------- datos ---------- */
 var DB = {
   cosmiatras: JSON.parse(localStorage.getItem('cosmiatras') || '["Denisse","Pamela","Karen"]'),
@@ -1696,9 +1702,18 @@ $('btnVolver').onclick = function(){
   pantalla(1);
 };
 
+/* la marca va debajo de este script en el html, asi que hay que
+   esperar a que la pagina termine de armarse */
+document.addEventListener('DOMContentLoaded', function(){
+  var m = $('marcaVersion');
+  if(m) m.textContent = 'Versión ' + VERSION_APP;
+});
+
 pintarCosmiatras();
 pantalla(1);
 enviarPendientes();
 </script>
+
+  <div id="marcaVersion" class="marca-version"></div>
 </body>
 </html>

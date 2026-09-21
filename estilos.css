@@ -334,3 +334,8 @@ tr.activa td{background:var(--verde-bg)}
   td.con-nota{flex-wrap:wrap}
   td.con-nota .nota-fila{flex:0 0 100%;margin-top:6px}
 }
+
+/* la marca de version: discreta, abajo del todo. No estorba y sirve
+   para saber si un telefono se quedo con una copia vieja. */
+.marca-version{text-align:center;color:#b9aeb4;font-size:11px;
+               padding:18px 0 26px;letter-spacing:.3px}
