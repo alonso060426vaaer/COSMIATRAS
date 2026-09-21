@@ -1304,10 +1304,15 @@ function tarjetaPersona(nombre, lista){
 
   var filas = lista.map(function(r){
     var m = minutos(r.inicio, r.fin);
+    /* el mensaje va debajo del procedimiento y no en una columna
+       aparte: en el telefono una columna mas no cabe, y asi se lee
+       pegado a lo que aclara */
+    var nota = r.comentario
+      ? '<div class="nota-fila">' + limpio(r.comentario) + '</div>' : '';
     return '<tr>' +
       '<td data-tit="Fecha">' + fechaLarga(r.fecha) + '</td>' +
       '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
-      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + '</td>' +
+      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + nota + '</td>' +
       '<td data-tit="Inicio">' + r.inicio + '</td>' +
       '<td data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
       '<td data-tit="Minutos">' + (m === '' ? '&mdash;' : m) + '</td></tr>';
@@ -1338,10 +1343,17 @@ $('btnCSV').onclick = function(){
   var datos = filtrados();
   if(!datos.length) return aviso('No hay registros para exportar');
   var salto = String.fromCharCode(10);
-  var csv = 'Fecha;Cosmiatra;Paciente;Procedimiento;Hora inicio;Hora termino;Minutos' + salto;
+  var csv = 'Fecha;Cosmiatra;Paciente;Procedimiento;Hora inicio;Hora termino;Minutos;Mensaje' + salto;
+
+  /* las columnas se separan con ; y las filas con salto de linea, asi
+     que si el mensaje trae alguno de los dos, partiria la tabla */
+  function sinRomper(t){
+    return String(t || '').replace(/[;\r\n]+/g, ' ').trim();
+  }
+
   datos.forEach(function(r){
     csv += [fechaLarga(r.fecha), r.cosmiatra, r.paciente, r.procedimiento,
-            r.inicio, r.fin, minutos(r.inicio, r.fin)].join(';') + salto;
+            r.inicio, r.fin, minutos(r.inicio, r.fin), sinRomper(r.comentario)].join(';') + salto;
   });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([String.fromCharCode(65279) + csv], { type:'text/csv;charset=utf-8' }));
