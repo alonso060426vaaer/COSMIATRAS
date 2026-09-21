@@ -831,11 +831,154 @@ function filaProcDOM(a, k, f, i){
     if(a.filas.length <= 1) quitar.classList.add('invisible');
   }
 
+  /* El + del relevo solo tiene sentido con el cronometro andando:
+     antes de arrancar no hay a quien relevar, y despues de terminar
+     ya no se puede. Queda al lado del boton verde, y la X al final. */
+  var iconos = document.createElement('div');
+  iconos.className = 'iconos-fila';
+
+  var extra = null;
+  if(reg && !reg.fin){
+    extra = botonExtra(reg, f);
+    iconos.appendChild(extra.boton);
+  }
+  iconos.appendChild(quitar);
+
   row.appendChild(campo);
   row.appendChild(estado);
   row.appendChild(btn);
-  row.appendChild(quitar);
+  row.appendChild(iconos);
+  if(extra) row.appendChild(extra.panel);
+
   return row;
+}
+
+/* La vista chica del + .
+   Con el cronometro andando pregunta quien CONTINUA y desde que hora:
+   pasa cuando una se demora y entra otra a terminar el procedimiento.
+   No se duplica el tiempo, se parte: cada una se lleva su tramo.
+   El comentario es aparte y siempre se puede escribir. */
+function panelExtra(reg, f){
+  var caja = document.createElement('div');
+  caja.className = 'extra-fila oculto';
+
+  var enMarcha = !!(reg && !reg.fin);
+
+  /* --- el relevo: solo tiene sentido con el cronometro andando --- */
+  if(enMarcha){
+    var cQuien = document.createElement('div');
+    var lQuien = document.createElement('label');
+    lQuien.textContent = '\u00bfQui\u00e9n contin\u00faa? (opcional)';
+
+    var sel = document.createElement('select');
+    var vacia = document.createElement('option');
+    vacia.value = '';
+    vacia.textContent = 'Nadie, sigo yo';
+    sel.appendChild(vacia);
+
+    DB.cosmiatras.forEach(function(c){
+      if(c === reg.cosmiatra) return;       /* no se releva a si misma */
+      var o = document.createElement('option');
+      o.value = c;
+      o.textContent = c;
+      sel.appendChild(o);
+    });
+
+    var relevo = reg.relevo || {};
+    sel.value = relevo.quien || '';
+
+    var cDesde = document.createElement('div');
+    var lDesde = document.createElement('label');
+    lDesde.textContent = 'Desde las';
+
+    var hora = document.createElement('input');
+    hora.type = 'time';
+    hora.value = relevo.desde || '';
+    hora.disabled = !sel.value;
+
+    function guardarRelevo(){
+      if(!sel.value){
+        delete reg.relevo;
+      } else {
+        reg.relevo = { quien: sel.value, desde: hora.value || ahora() };
+      }
+      guardar();
+      guardarAbiertas();
+      pintarAtenciones();
+      pintarHoja();
+    }
+
+    sel.onchange = function(){
+      /* al elegir a alguien, la hora del relevo es ahora mismo */
+      if(sel.value && !hora.value) hora.value = ahora();
+      guardarRelevo();
+    };
+
+    hora.onchange = function(){
+      /* el relevo tiene que caer dentro del procedimiento */
+      if(hora.value && minutos(reg.inicio, hora.value) < 0){
+        aviso('El relevo no puede ser antes de las ' + reg.inicio);
+        hora.value = relevo.desde || ahora();
+        return;
+      }
+      guardarRelevo();
+    };
+
+    cQuien.appendChild(lQuien);
+    cQuien.appendChild(sel);
+    cDesde.appendChild(lDesde);
+    cDesde.appendChild(hora);
+    caja.appendChild(cQuien);
+    caja.appendChild(cDesde);
+  }
+
+  /* --- comentario, siempre --- */
+  var cCom = document.createElement('div');
+  cCom.className = 'ancho-total';
+  var lCom = document.createElement('label');
+  lCom.textContent = 'Comentario (opcional)';
+
+  var inp = document.createElement('input');
+  inp.value = (reg && reg.comentario) || (f && f.comentario) || '';
+  inp.placeholder = 'Lo que quieras anotar';
+  inp.autocomplete = 'off';
+  inp.oninput = function(){
+    if(f)   f.comentario   = inp.value;
+    if(reg) reg.comentario = inp.value;
+    guardar();
+    guardarAbiertas();
+  };
+
+  cCom.appendChild(lCom);
+  cCom.appendChild(inp);
+  caja.appendChild(cCom);
+
+  return caja;
+}
+
+/* El + amarillo, con su panel. Se usa en el renglon de la ficha y
+   tambien en la tabla de Hoy, que es donde se ve el cronometro
+   cuando la ficha ya se plego. */
+function botonExtra(reg, f){
+  var mas = document.createElement('button');
+  mas.className = 'mas-extra';
+  mas.type = 'button';
+  mas.innerHTML = '&#43;';
+  mas.title = 'Relevo y comentario';
+
+  var tieneAlgo = (reg && (reg.relevo || reg.comentario)) || (f && f.comentario);
+  if(tieneAlgo) mas.classList.add('con-datos');
+
+  var panel = panelExtra(reg, f);
+  mas.onclick = function(){
+    panel.classList.toggle('oculto');
+    if(!panel.classList.contains('oculto')){
+      var primero = panel.querySelector('select, input');
+      if(primero) primero.focus();
+    }
+  };
+
+  return { boton: mas, panel: panel };
 }
 
 function iniciarFila(k, i){
@@ -859,7 +1002,8 @@ function iniciarFila(k, i){
     paciente: pac,
     procedimiento: txt,
     inicio: ahora(),
-    fin: ''
+    fin: '',
+    comentario: f.comentario || ''
   };
   DB.registros.push(reg);
   f.id = reg.id;
@@ -948,6 +1092,12 @@ function pintarHoja(){
       b.innerHTML = '&#9632; Terminar';
       b.onclick = function(){ r.fin = ahora(); refrescar(); };
       celda.appendChild(b);
+
+      /* el + del relevo: aqui es donde se ve el cronometro una vez
+         que la ficha de la paciente se plego */
+      var ex = botonExtra(r, null);
+      celda.appendChild(ex.boton);
+      tr.appendChild(ex.panel);
 
       /* por si lo inicio por error */
       var x = document.createElement('button');
@@ -1201,15 +1351,38 @@ function enviarLista(lista, manual){
   enviando = true;
   if(manual) aviso('Enviando ' + lista.length + '...');
 
-  var cuerpo = {
-    token: SHEETS_TOKEN,
-    registros: lista.map(function(r){
-      return {
-        id: r.id, fecha: r.fecha, paciente: r.paciente, cosmiatra: r.cosmiatra,
-        procedimiento: r.procedimiento, inicio: r.inicio, fin: r.fin
-      };
-    })
-  };
+  /* Si hubo relevo, el procedimiento se parte en dos tramos y cada
+     una se lleva el suyo: de inicio a la hora del relevo, y de ahi
+     al final. No se duplica el tiempo. */
+  var paraEnviar = [];
+
+  lista.forEach(function(r){
+    var rel = r.relevo;
+    var valido = rel && rel.quien && rel.desde &&
+                 minutos(r.inicio, rel.desde) > 0 &&
+                 minutos(rel.desde, r.fin) > 0;
+
+    paraEnviar.push({
+      id: r.id, fecha: r.fecha, paciente: r.paciente, cosmiatra: r.cosmiatra,
+      procedimiento: r.procedimiento,
+      inicio: r.inicio,
+      fin: valido ? rel.desde : r.fin,
+      comentario: r.comentario || '',
+      apoyo: valido ? ('Continuo ' + rel.quien) : ''
+    });
+
+    if(valido){
+      paraEnviar.push({
+        id: r.id + '-relevo', fecha: r.fecha, paciente: r.paciente,
+        cosmiatra: rel.quien, procedimiento: r.procedimiento,
+        inicio: rel.desde, fin: r.fin,
+        comentario: r.comentario || '',
+        apoyo: 'Releva a ' + r.cosmiatra
+      });
+    }
+  });
+
+  var cuerpo = { token: SHEETS_TOKEN, registros: paraEnviar };
 
   /* text/plain a proposito: evita la peticion previa (preflight)
      que Apps Script no sabe responder. */

@@ -8,6 +8,7 @@
   --rosa:#b8577f; --rosa-claro:#fdf3f7; --borde:#e6dbe1;
   --verde:#1f9d7a; --verde-bg:#e7f6f1;
   --texto:#2e2a2c; --gris:#8a8288; --fondo:#faf7f8;
+  --amarillo:#d9a02b; --amarillo-bg:#fdf6e6;
 }
 
 /* ---------- base ---------- */
@@ -129,6 +130,25 @@ select:disabled{background:#f7f4f5;color:var(--texto);opacity:1;
   .sugerencias div:hover{background:var(--rosa-claro);color:var(--rosa)}
 }
 
+/* ---------- el + de apoyo y comentario ---------- */
+.iconos-fila{display:flex;align-items:center;gap:4px}
+
+.mas-extra{width:30px;height:30px;flex:0 0 auto;border-radius:8px;cursor:pointer;
+           border:1px solid var(--amarillo);background:var(--amarillo-bg);
+           color:var(--amarillo);font-size:19px;line-height:1;font-family:inherit;
+           font-weight:600;padding:0}
+.mas-extra:hover{background:var(--amarillo);color:#fff}
+/* relleno cuando ya tiene algo escrito, para verlo de un vistazo */
+.mas-extra.con-datos{background:var(--amarillo);color:#fff}
+
+.extra-fila{grid-column:1 / -1;display:grid;grid-template-columns:1fr 130px;
+            gap:10px;margin-top:10px;padding:12px 14px;
+            background:var(--amarillo-bg);border:1px solid #f0e2c4;border-radius:10px}
+.extra-fila .ancho-total{grid-column:1 / -1}
+/* en la tabla de Hoy el panel es una fila mas de la tarjeta */
+#tbHoy .extra-fila{margin-top:0}
+.extra-fila label{margin-bottom:4px}
+
 /* ---------- botones ---------- */
 .btn{border:0;border-radius:9px;padding:13px 22px;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit}
 .btn-rosa{background:var(--rosa);color:#fff}
@@ -235,6 +255,9 @@ tr.activa td{background:var(--verde-bg)}
 
   /* totales del reporte en fila, sin desbordar */
   .totales{gap:0;justify-content:space-between}
+
+  /* el panel de apoyo, en una columna */
+  .extra-fila{grid-template-columns:1fr;gap:8px;padding:10px 12px}
 
   /* sugerencias mas altas, para tocarlas con el dedo */
   .sugerencias div{padding:15px 14px;font-size:16px}
