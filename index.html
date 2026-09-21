@@ -81,10 +81,6 @@
     <div class="card">
       <div class="fila-form">
         <div>
-          <label>Fecha</label>
-          <input type="date" id="fFecha">
-        </div>
-        <div>
           <label>Cosmiatra</label>
           <select id="fCosm"></select>
         </div>
@@ -978,15 +974,46 @@ function panelExtra(reg, f){
     pintarEstadoEnvio();
   };
 
-  /* al salir del campo se manda ya, sin esperar al reintento */
-  inp.onchange = function(){
+  /* En la computadora basta con Enter o con pinchar fuera. En el
+     telefono eso no se ve por ningun lado: se escribe y no hay nada
+     que tocar, asi que parece que no se guardo. Por eso el boton. */
+  function guardarYcerrar(){
+    if(f)   f.comentario   = inp.value;
+    if(reg) reg.comentario = inp.value;
+    if(reg && reg.enviado) reg.comentarioPendiente = true;
+
+    guardar();
+    guardarAbiertas();
+    inp.blur();
+    caja.classList.add('oculto');
+
     if(reg && reg.comentarioPendiente) enviarComentarios(true);
-    pintarHoja();
+    refrescar();
+  }
+
+  inp.onkeydown = function(e){
+    if(e.key === 'Enter'){ e.preventDefault(); guardarYcerrar(); }
+  };
+
+  /* y si sale del campo sin tocar el boton, tampoco se espera */
+  inp.onchange = function(){
+    if(reg && reg.comentarioPendiente) enviarComentarios(false);
+    pintarEstadoEnvio();
   };
 
   cCom.appendChild(lCom);
   cCom.appendChild(inp);
   caja.appendChild(cCom);
+
+  var pie = document.createElement('div');
+  pie.className = 'ancho-total pie-extra';
+  var ok = document.createElement('button');
+  ok.type = 'button';
+  ok.className = 'btn btn-rosa btn-sm';
+  ok.textContent = 'Guardar';
+  ok.onclick = guardarYcerrar;
+  pie.appendChild(ok);
+  caja.appendChild(pie);
 
   return caja;
 }
@@ -1163,7 +1190,9 @@ function pintarHoja(){
       var nota = document.createElement('div');
       nota.className = 'nota-fila';
       nota.textContent = r.comentario;
-      tr.firstChild.nextSibling.appendChild(nota);
+      var celdaProc = tr.firstChild.nextSibling;
+      celdaProc.classList.add('con-nota');
+      celdaProc.appendChild(nota);
     }
 
     tb.appendChild(tr);
@@ -1269,15 +1298,17 @@ function abrirReporte(){
     sel.disabled = false;
   }
 
-  if(!$('fFecha').value) $('fFecha').value = hoy();
   pantalla(3);
   pintarReporte();
 }
 
+/* Sin filtro de fecha: se ve todo lo que hay en el telefono. Estorbaba
+   mas que ayudaba, porque arrancaba puesto en hoy y escondia lo de
+   los dias anteriores sin que se notara. */
 function filtrados(){
-  var f = $('fFecha').value, c = $('fCosm').value;
+  var c = $('fCosm').value;
   return DB.registros.filter(function(r){
-    return (!f || r.fecha === f) && (!c || r.cosmiatra === c);
+    return !c || r.cosmiatra === c;
   });
 }
 
@@ -1332,7 +1363,8 @@ function tarjetaPersona(nombre, lista){
     return '<tr>' +
       '<td data-tit="Fecha">' + fechaLarga(r.fecha) + '</td>' +
       '<td class="col-paciente" data-tit="Paciente">' + limpio(r.paciente) + '</td>' +
-      '<td data-tit="Procedimiento">' + limpio(r.procedimiento) + nota + '</td>' +
+      '<td data-tit="Procedimiento"' + (nota ? ' class="con-nota"' : '') + '>' +
+        limpio(r.procedimiento) + nota + '</td>' +
       '<td data-tit="Inicio">' + r.inicio + '</td>' +
       '<td data-tit="T&eacute;rmino">' + (r.fin || '&mdash;') + '</td>' +
       '<td data-tit="Minutos">' + (m === '' ? '&mdash;' : m) + '</td></tr>';
@@ -1354,7 +1386,6 @@ function tarjetaPersona(nombre, lista){
   return div;
 }
 
-$('fFecha').onchange = pintarReporte;
 $('fCosm').onchange  = pintarReporte;
 
 $('btnExcel').onclick = enviarFiltrados;
@@ -1377,7 +1408,7 @@ $('btnCSV').onclick = function(){
   });
   var a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([String.fromCharCode(65279) + csv], { type:'text/csv;charset=utf-8' }));
-  a.download = 'productividad_' + ($('fFecha').value || 'todo') + '.csv';
+  a.download = 'productividad_' + hoy() + '.csv';
   a.click();
 };
 
@@ -1421,7 +1452,7 @@ function pintarEstadoEnvio(){
 /* Envia una lista de registros. "manual" = lo pidio la persona con
    el boton, asi que conviene avisarle de todo; si es automatico se
    avisa solo cuando hay algo que contar. */
-function enviarLista(lista, manual){
+function enviarLista(lista, manual, alTerminar){
   if(!SHEETS_URL){ if(manual) aviso('Falta conectar la hoja: no hay URL configurada'); return; }
   if(enviando){    if(manual) aviso('Ya hay un envio en curso, espera un momento'); return; }
   if(!lista.length){ if(manual) aviso('No hay procedimientos terminados para enviar'); return; }
@@ -1500,6 +1531,7 @@ function enviarLista(lista, manual){
   .then(function(){
     enviando = false;
     pintarEstadoEnvio();
+    if(alTerminar) alTerminar();
   });
 }
 
@@ -1593,7 +1625,27 @@ function enviarComentarios(manual){
    los filtros de fecha y cosmiatra. Si algo ya estaba en la hoja el
    script lo reconoce por su id y no lo duplica. */
 function enviarFiltrados(){
-  enviarLista(filtrados().filter(function(r){ return r.fin; }), true);
+  /* al acabar se vuelve a la ficha de la persona, con el cursor en el
+     nombre de la paciente: despues de enviar lo que sigue siempre es
+     atender a la siguiente, no quedarse mirando el reporte */
+  var quien  = reporteDe || $('fCosm').value || cosmActual;
+  var volver = function(){ if(quien) abrirHoja(quien); };
+
+  /* los mensajes escritos despues van por su cuenta, no como filas */
+  enviarComentarios(false);
+
+  /* Solo lo que falta. Antes se mandaba todo lo que se veia, y como
+     el reporte ya no filtra por fecha eso serian cientos de filas que
+     la hoja descartaria una por una por repetidas. */
+  var lista = filtrados().filter(function(r){ return r.fin && !r.enviado; });
+
+  if(!lista.length){
+    aviso('Ya estaba todo enviado');
+    volver();
+    return;
+  }
+
+  enviarLista(lista, true, volver);
 }
 
 /* ---------- reintentos automaticos ----------

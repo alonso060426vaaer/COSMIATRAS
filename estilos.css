@@ -321,3 +321,16 @@ tr.activa td{background:var(--verde-bg)}
 .nota-fila{margin-top:4px;font-size:13px;line-height:1.35;color:#8a6d1f;
            background:var(--amarillo-bg);border-left:3px solid var(--amarillo);
            border-radius:0 6px 6px 0;padding:5px 9px}
+
+/* el boton de guardar del panel amarillo: en el telefono es lo unico
+   visible que confirma que el mensaje quedo escrito */
+.pie-extra{display:flex;justify-content:flex-end}
+.pie-extra .btn{padding:10px 26px}
+
+@media(max-width:640px){
+  /* en el movil la celda es una linea con la etiqueta a un lado y el
+     valor al otro. El mensaje no cabe ahi: baja a su propia linea,
+     que si no aplasta el nombre del procedimiento contra el borde. */
+  td.con-nota{flex-wrap:wrap}
+  td.con-nota .nota-fila{flex:0 0 100%;margin-top:6px}
+}
