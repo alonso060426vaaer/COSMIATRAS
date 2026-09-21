@@ -559,9 +559,32 @@ function buscarProcs(texto){
      alEnter -> que hacer con Enter cuando no hay nada marcado
                 (en procedimientos no se pasa nada: Enter solo cierra,
                  para que el cronometro arranque unicamente con el boton) */
-/* Pacientes que ya se atendieron antes, de la mas reciente a la mas
-   antigua, para no volver a escribir el nombre entero cada vez. */
-function buscarPacientes(texto){
+/* ============================================================
+   PACIENTES
+   ------------------------------------------------------------
+   Dos fuentes, y se usan las dos:
+
+   1) Los nombres que ya se escribieron en este telefono. Salen al
+      instante, incluso sin red.
+   2) El padron de Odoo, preguntando al buscador que ya tiene
+      HISTORIAS CLINICAS. Manda este, que es la lista oficial.
+
+   Para llegar a Odoo hacen falta dos cosas, y si falta alguna la app
+   sigue funcionando con lo del telefono, sin avisos ni errores:
+     - que la app se sirva del mismo XAMPP que HISTORIAS CLINICAS
+       (si esta en internet, no alcanza esa PC);
+     - que la cosmiatra tenga su sesion abierta ahi. Su rol ya trae
+       el permiso que ese buscador pide.
+   ============================================================ */
+
+var API_PACIENTES = '/HISTORIAS%20CLINICAS/api/recepcion/pacientes.php';
+
+var cacheOdoo        = {};   /* lo ya preguntado, para no repetir */
+var sinSesionHasta   = 0;    /* si no hay sesion, no insistir un rato */
+var esperaOdoo       = null;
+
+/* Los nombres escritos en este telefono, del mas reciente al mas viejo. */
+function pacientesDelTelefono(texto){
   var q = sinTildes(texto).trim();
   if(q.length < 2) return [];
 
@@ -582,6 +605,58 @@ function buscarPacientes(texto){
     if(salida.length >= MAX_SUGERENCIAS) break;
   }
   return salida;
+}
+
+/* El padron de Odoo. Tarda, asi que llega despues y se avisa por
+   la funcion que nos pasan. */
+function pacientesDeOdoo(texto, cuandoLleguen){
+  var q = String(texto).trim();
+
+  if(!API_PACIENTES || q.length < 3) return;   /* el buscador pide 3 letras */
+  if(Date.now() < sinSesionHasta) return;      /* sin sesion: no molestar */
+
+  if(cacheOdoo[q]){ cuandoLleguen(cacheOdoo[q]); return; }
+
+  /* se espera un momento: si no, se pregunta en cada tecla */
+  clearTimeout(esperaOdoo);
+  esperaOdoo = setTimeout(function(){
+    fetch(API_PACIENTES + '?q=' + encodeURIComponent(q), { credentials: 'same-origin' })
+      .then(function(res){
+        if(res.status === 401 || res.status === 403){
+          /* no hay sesion en HISTORIAS CLINICAS: se deja de preguntar
+             cinco minutos y se sigue con los nombres del telefono */
+          sinSesionHasta = Date.now() + 5 * 60 * 1000;
+          throw new Error('sin sesion');
+        }
+        return res.json();
+      })
+      .then(function(j){
+        var filas = (j && j.data && j.data.pacientes) || [];
+        cacheOdoo[q] = filas.map(function(p){
+          return { valor: p.nombre, nota: p.dni || p.codigo || '' };
+        });
+        cuandoLleguen(cacheOdoo[q]);
+      })
+      .catch(function(){ /* sin Odoo, se sigue con lo del telefono */ });
+  }, 250);
+}
+
+/* Lo del telefono ya mismo; lo de Odoo cuando llegue. */
+function buscarPacientes(texto, cuandoLleguen){
+  var locales = pacientesDelTelefono(texto);
+
+  if(cuandoLleguen){
+    pacientesDeOdoo(texto, function(deOdoo){
+      /* Odoo primero, que es el padron. Detras, los nombres del
+         telefono que Odoo no trajo. */
+      var vistos = {};
+      deOdoo.forEach(function(p){ vistos[p.valor.toLowerCase()] = true; });
+
+      var extra = locales.filter(function(n){ return !vistos[n.toLowerCase()]; });
+      cuandoLleguen(deOdoo.concat(extra).slice(0, MAX_SUGERENCIAS));
+    });
+  }
+  return locales;
 }
 
 function cajaSugerencias(inp, buscar, alEnter){
@@ -612,15 +687,29 @@ function cajaSugerencias(inp, buscar, alEnter){
     inp.focus();
   }
 
-  function pintar(){
-    var lista = buscar(inp.value);
+  /* Una opcion puede ser un texto suelto, o {valor, nota} cuando hay
+     algo que mostrar al lado sin que entre en el campo, como el DNI. */
+  function mostrar(lista){
     caja.innerHTML = '';
     opciones = [];
     activa = -1;
-    if(!lista.length){ cerrar(); return; }
-    lista.forEach(function(p){
+    if(!lista || !lista.length){ cerrar(); return; }
+
+    lista.forEach(function(item){
+      var valor = (typeof item === 'string') ? item : item.valor;
+      var nota  = (typeof item === 'string') ? ''   : (item.nota || '');
+
       var op = document.createElement('div');
-      op.textContent = p;
+      op.textContent = valor;
+      op.setAttribute('data-valor', valor);   /* lo que se escribe */
+
+      if(nota){
+        var n = document.createElement('span');
+        n.className = 'nota-sugerencia';
+        n.textContent = nota;
+        op.appendChild(n);
+      }
+
       /* En el telefono la lista tapa el boton Iniciar. Si se cerrara
          al tocar, el clic que llega despues aterrizaria en el boton y
          arrancaria el cronometro solo. Por eso:
@@ -632,12 +721,24 @@ function cajaSugerencias(inp, buscar, alEnter){
       op.addEventListener('click', function(ev){
         ev.preventDefault();
         ev.stopPropagation();
-        elegir(p);
+        elegir(valor);
       });
+
       caja.appendChild(op);
       opciones.push(op);
     });
     caja.classList.remove('oculto');
+  }
+
+  function pintar(){
+    var texto = inp.value;
+
+    /* lo que se pueda dar al instante, y lo que tarde se repinta
+       cuando llegue, si para entonces sigue escribiendo lo mismo */
+    var ahora = buscar(texto, function(masTarde){
+      if(inp.value === texto) mostrar(masTarde);
+    });
+    mostrar(ahora);
   }
 
   inp.addEventListener('input', pintar);
@@ -654,7 +755,7 @@ function cajaSugerencias(inp, buscar, alEnter){
          arranca UNICAMENTE con el boton Iniciar, para que no se
          dispare sin querer con el teclado del telefono. */
       e.preventDefault();
-      if(abierta && activa >= 0){ elegir(opciones[activa].textContent); return; }
+      if(abierta && activa >= 0){ elegir(opciones[activa].getAttribute('data-valor')); return; }
       cerrar();
       if(alEnter) alEnter();
     }
