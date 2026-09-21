@@ -831,14 +831,15 @@ function filaProcDOM(a, k, f, i){
     if(a.filas.length <= 1) quitar.classList.add('invisible');
   }
 
-  /* El + del relevo solo tiene sentido con el cronometro andando:
-     antes de arrancar no hay a quien relevar, y despues de terminar
-     ya no se puede. Queda al lado del boton verde, y la X al final. */
+  /* Con el cronometro andando es el + del relevo; una vez terminado
+     se queda para dejar un mensaje -que no se hizo, que la paciente
+     es alergica, lo que sea-. Antes de arrancar no sale: todavia no
+     hay nada que comentar. Va al lado del boton, y la X al final. */
   var iconos = document.createElement('div');
   iconos.className = 'iconos-fila';
 
   var extra = null;
-  if(reg && !reg.fin){
+  if(reg){
     extra = botonExtra(reg, f);
     iconos.appendChild(extra.boton);
   }
@@ -932,21 +933,35 @@ function panelExtra(reg, f){
     caja.appendChild(cDesde);
   }
 
-  /* --- comentario, siempre --- */
+  /* --- el mensaje, siempre --- */
   var cCom = document.createElement('div');
   cCom.className = 'ancho-total';
   var lCom = document.createElement('label');
-  lCom.textContent = 'Comentario (opcional)';
+  lCom.textContent = enMarcha ? 'Comentario (opcional)' : 'Mensaje (opcional)';
 
   var inp = document.createElement('input');
   inp.value = (reg && reg.comentario) || (f && f.comentario) || '';
-  inp.placeholder = 'Lo que quieras anotar';
+  /* con el procedimiento ya terminado lo que se anota casi siempre es
+     por que no se hizo o por que salio distinto, asi que el ejemplo
+     lo dice: es lo que pidieron desde recepcion */
+  inp.placeholder = enMarcha
+    ? 'Lo que quieras anotar'
+    : 'Ej.: no se realizó, la paciente es alérgica';
   inp.autocomplete = 'off';
   inp.oninput = function(){
     if(f)   f.comentario   = inp.value;
     if(reg) reg.comentario = inp.value;
+    /* si esa fila ya se fue a la hoja, el mensaje tiene que ir
+       detras: se marca y se manda solo */
+    if(reg && reg.enviado) reg.comentarioPendiente = true;
     guardar();
     guardarAbiertas();
+  };
+
+  /* al salir del campo se manda ya, sin esperar al reintento */
+  inp.onchange = function(){
+    if(reg && reg.comentarioPendiente) enviarComentarios();
+    pintarHoja();
   };
 
   cCom.appendChild(lCom);
@@ -956,15 +971,21 @@ function panelExtra(reg, f){
   return caja;
 }
 
-/* El + amarillo, con su panel. Se usa en el renglon de la ficha y
+/* El boton amarillo, con su panel. Se usa en el renglon de la ficha y
    tambien en la tabla de Hoy, que es donde se ve el cronometro
-   cuando la ficha ya se plego. */
+   cuando la ficha ya se plego.
+
+   Cambia segun el momento: con el cronometro andando es el + del
+   relevo, y una vez terminado es el lapiz para dejar un mensaje. */
 function botonExtra(reg, f){
+  var andando = !!(reg && !reg.fin);
+
   var mas = document.createElement('button');
-  mas.className = 'mas-extra';
+  mas.className = 'mas-extra' + (andando ? '' : ' mensaje');
   mas.type = 'button';
-  mas.innerHTML = '&#43;';
-  mas.title = 'Relevo y comentario';
+  mas.innerHTML = andando ? '&#43;' : '&#9998;';
+  mas.title = andando ? 'Relevo y comentario' : 'Agregar un mensaje';
+  mas.setAttribute('aria-label', mas.title);
 
   var tieneAlgo = (reg && (reg.relevo || reg.comentario)) || (f && f.comentario);
   if(tieneAlgo) mas.classList.add('con-datos');
@@ -1109,7 +1130,22 @@ function pintarHoja(){
     } else {
       celda.setAttribute('data-tit', 'Duración');
       celda.innerHTML = '<span class="duracion">' + minutos(r.inicio, r.fin) + ' min</span>';
+
+      /* el lapiz para dejar un mensaje: aqui es donde queda la
+         atencion una vez que se para el cronometro */
+      var msj = botonExtra(r, null);
+      celda.appendChild(msj.boton);
+      tr.appendChild(msj.panel);
     }
+
+    /* si ya hay un mensaje escrito, se ve sin tener que abrir nada */
+    if(r.comentario){
+      var nota = document.createElement('div');
+      nota.className = 'nota-fila';
+      nota.textContent = r.comentario;
+      tr.firstChild.nextSibling.appendChild(nota);
+    }
+
     tb.appendChild(tr);
   });
 }
@@ -1336,8 +1372,18 @@ function pintarEstadoEnvio(){
   var el = $('estadoEnvio');
   if(!el) return;
   if(!SHEETS_URL){ el.textContent = 'Hoja no conectada'; return; }
+
   var n = pendientesEnvio().length;
-  el.textContent = n ? (n === 1 ? '1 sin enviar' : n + ' sin enviar') : 'Todo enviado';
+  if(n){
+    el.textContent = n === 1 ? '1 sin enviar' : n + ' sin enviar';
+    return;
+  }
+
+  /* un mensaje escrito despues tambien esta pendiente, aunque su
+     fila ya se haya ido: si no, aqui diria "Todo enviado" mintiendo */
+  var m = comentariosPendientes().length;
+  el.textContent = m ? (m === 1 ? '1 mensaje sin enviar' : m + ' mensajes sin enviar')
+                     : 'Todo enviado';
 }
 
 /* Envia una lista de registros. "manual" = lo pidio la persona con
@@ -1429,6 +1475,48 @@ function enviarLista(lista, manual){
 function enviarPendientes(){
   pintarEstadoEnvio();
   enviarLista(pendientesEnvio(), false);
+  enviarComentarios();
+}
+
+/* ---------- el mensaje escrito despues ----------
+   La fila se manda en cuanto se para el cronometro, y el motivo se
+   escribe despues. Para entonces esa fila ya esta en la hoja, asi
+   que no se manda otra vez: se le pide al script que la busque y le
+   escriba el comentario donde va. */
+function comentariosPendientes(){
+  return DB.registros.filter(function(r){ return r.comentarioPendiente; });
+}
+
+var mandandoComentarios = false;
+
+function enviarComentarios(){
+  if(mandandoComentarios || !SHEETS_URL) return;
+
+  var lista = comentariosPendientes();
+  if(!lista.length) return;
+
+  mandandoComentarios = true;
+
+  var filas = lista.map(function(r){
+    return { fecha: r.fecha, paciente: r.paciente, cosmiatra: r.cosmiatra,
+             inicio: r.inicio, comentario: r.comentario || '' };
+  });
+
+  fetch(SHEETS_URL, {
+    method:  'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body:    JSON.stringify({ token: SHEETS_TOKEN, accion: 'comentar', filas: filas })
+  })
+  .then(function(res){ return res.json(); })
+  .then(function(res){
+    if(!res.ok) throw new Error(res.error || 'la hoja respondio sin ok');
+    /* solo se da por puesto lo que el script dijo haber encontrado */
+    lista.forEach(function(r){ delete r.comentarioPendiente; });
+    guardar();
+    pintarEstadoEnvio();
+  })
+  .catch(function(){ /* queda marcado y se reintenta solo */ })
+  .then(function(){ mandandoComentarios = false; });
 }
 
 /* Boton "Enviar a la hoja": manda lo que se ve en el reporte segun
@@ -1453,7 +1541,7 @@ document.addEventListener('visibilitychange', function(){
 
 /* y por si acaso, una vez por minuto mientras quede algo */
 setInterval(function(){
-  if(pendientesEnvio().length) enviarPendientes();
+  if(pendientesEnvio().length || comentariosPendientes().length) enviarPendientes();
 }, 60000);
 
 /* Marca todo lo que hay ahora como ya enviado. Se usa UNA vez, al

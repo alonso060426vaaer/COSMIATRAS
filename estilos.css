@@ -310,3 +310,14 @@ tr.activa td{background:var(--verde-bg)}
   /* en las tarjetas por persona, el procedimiento es lo que mas se lee */
   #repPorPersona td[data-tit="Procedimiento"]{font-weight:600}
 }
+
+/* ---------- el mensaje de despues ---------- */
+/* Mismo boton amarillo, pero con lapiz: aparece cuando el
+   procedimiento ya termino, para anotar por que no se hizo o
+   cualquier cosa que haya que decir. */
+.mas-extra.mensaje{font-size:15px}
+
+/* el mensaje ya escrito, debajo del procedimiento en la tabla de Hoy */
+.nota-fila{margin-top:4px;font-size:13px;line-height:1.35;color:#8a6d1f;
+           background:var(--amarillo-bg);border-left:3px solid var(--amarillo);
+           border-radius:0 6px 6px 0;padding:5px 9px}

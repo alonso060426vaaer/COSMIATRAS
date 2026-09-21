@@ -8,3 +8,7 @@ Codigo.gs
 
 # solo tiene sentido en el servidor de la clinica, donde esta Odoo
 buscar-paciente.php
+
+# Los puentes que hablan con Odoo o con la hoja no se publican
+# mientras no esten decididos: llevan credenciales o abren accesos.
+api/
